@@ -6,8 +6,10 @@ import shutil
 import ast
 from collections import defaultdict
 
-PATH = '/Users/juan/tmp/flask/'
-COVJSON = 'flask.json'
+COVJSON = 'flask.json'  # FIXME parse arguments
+
+#PATH = '/Users/juan/tmp/flask/'
+PATH = ''
 
 #MODEL="gpt-3.5-turbo",
 #MODEL="gpt-3.5-turbo-16k",
@@ -244,5 +246,5 @@ This test does not improve coverage: {'lines' if len(missing_lines)>1 else 'line
 missing = get_missing_coverage(COVJSON, PATH)
 for m in missing:
     fname, objname, line_range, missing_lines = m
-#    if not fname.startswith('src/flask/helpers.py'): continue  # XXX just for testing
+    if not fname.startswith('src/'): continue  # FIXME need to derive this somehow, or handle tests somehow
     improve_coverage(m, PATH)
