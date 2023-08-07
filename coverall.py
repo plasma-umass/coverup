@@ -17,14 +17,19 @@ MODEL="gpt-4"
 USE_FUNCTIONS=False
 
 PREFIX = 'coverall-'
-test_seq = 1
+COVERALL_TESTS_DIR="./" + PREFIX + "tests"
 
-#shutil.rmtree("./tmp", ignore_errors=True)
-#os.mkdir("./tmp")
+shutil.rmtree(COVERALL_TESTS_DIR, ignore_errors=True)
+os.mkdir(COVERALL_TESTS_DIR)
 log = open(PREFIX + "log", "w", buffering=1)    # 1 = line buffered
 
 openai.key=os.environ['OPENAI_API_KEY']
 openai.organization=os.environ['OPENAI_PLASMA_ORG']
+
+
+test_seq = 1
+def current_test():
+    return PREFIX + f"test{test_seq}"
 
 
 def get_missing_coverage(jsonfile, path):
@@ -66,7 +71,7 @@ def get_missing_coverage(jsonfile, path):
 def measure_coverage(test: str):
     import sys
 
-    fname = PREFIX + f"test{test_seq}"
+    fname = current_test()
     fname_test = fname + ".py"
     fname_json = fname + ".json"
 
@@ -160,6 +165,8 @@ when proposing a new test or correcting one you previously proposed.
                 time.sleep(sleep)
                 sleep *= 2
 
+            # FIXME handle openai.error.InvalidRequestError (usually too long)
+
         response_message = response["choices"][0]["message"]
 
         if response_message['content']:
@@ -220,7 +227,7 @@ when proposing a new test or correcting one you previously proposed.
                 print(f"Still missing:      {list(now_missing)}")
 
                 if len(now_missing) < len(orig_missing):
-                    # XXX save test
+                    shutil.copyfile(current_test() + ".py", COVERALL_TESTS_DIR)
                     global test_seq
                     test_seq += 1
                     break
