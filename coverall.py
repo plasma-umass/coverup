@@ -17,7 +17,7 @@ MODEL="gpt-4"
 USE_FUNCTIONS=False
 
 PREFIX = 'coverall-'
-COVERALL_TESTS_DIR="./" + PREFIX + "tests"
+COVERALL_TESTS_DIR="./" + PREFIX + "tests/"  # XXX use Path class
 
 shutil.rmtree(COVERALL_TESTS_DIR, ignore_errors=True)
 os.mkdir(COVERALL_TESTS_DIR)
@@ -157,6 +157,7 @@ when proposing a new test or correcting one you previously proposed.
 
                 response = openai.ChatCompletion.create(**args)
                 break
+
             except (openai.error.ServiceUnavailableError,
                     openai.error.RateLimitError) as e:
                 print(e)
@@ -165,7 +166,11 @@ when proposing a new test or correcting one you previously proposed.
                 time.sleep(sleep)
                 sleep *= 2
 
-            # FIXME handle openai.error.InvalidRequestError (usually too long)
+            except openai.error.InvalidRequestError as e:
+                # usually "maximum context length" XXX check for this?
+                log.write(f"Received {e}: giving up\n")
+                print(f"Received {e}: giving up")
+                return
 
         response_message = response["choices"][0]["message"]
 
@@ -227,7 +232,7 @@ when proposing a new test or correcting one you previously proposed.
                 print(f"Still missing:      {list(now_missing)}")
 
                 if len(now_missing) < len(orig_missing):
-                    shutil.copyfile(current_test() + ".py", COVERALL_TESTS_DIR)
+                    shutil.copyfile(current_test() + ".py", COVERALL_TESTS_DIR + current_test() + ".py")
                     global test_seq
                     test_seq += 1
                     break
