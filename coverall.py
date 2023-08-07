@@ -138,12 +138,17 @@ when proposing a new test or correcting one you previously proposed.
         sleep = 1
         while True:
             try:
-                response = openai.ChatCompletion.create(
-                    model=MODEL,
-                    messages=messages,
-                    functions=functions if USE_FUNCTIONS else None,
-                    temperature=0
-                )
+                args = {
+                    'model': MODEL,
+                    'messages': messages,
+                    'temperature': 0
+                }
+
+                if USE_FUNCTIONS:
+                    args['functions'] = functions
+                    args['function_call'] = 'auto'
+
+                response = openai.ChatCompletion.create(**args)
                 break
             except (openai.error.ServiceUnavailableError,
                     openai.error.RateLimitError) as e:
