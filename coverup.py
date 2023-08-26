@@ -2,37 +2,56 @@ import openai
 import json
 import subprocess
 import os
-import shutil
 import ast
 from collections import defaultdict
+from pathlib import Path
 
-COVJSON = 'flask.json'  # FIXME parse arguments
 
-#PATH = '/Users/juan/tmp/flask/'
-PATH = ''
-
-#MODEL="gpt-3.5-turbo",
-#MODEL="gpt-3.5-turbo-16k",
-MODEL="gpt-4"
-USE_FUNCTIONS=False
-
-PREFIX = 'coverup-'
-COVERUP_TESTS_DIR="./" + PREFIX + "tests/"  # XXX use Path class
-
-shutil.rmtree(COVERUP_TESTS_DIR, ignore_errors=True)
-os.mkdir(COVERUP_TESTS_DIR)
-log = open(PREFIX + "log", "w", buffering=1)    # 1 = line buffered
-
+PREFIX = 'coverup'
 openai.key=os.environ['OPENAI_API_KEY']
-openai.organization=os.environ['OPENAI_PLASMA_ORG']
+openai.organization=os.environ['OPENAI_PLASMA_ORG'] # FIXME
 
 
-test_seq = 1
-def current_test():
-    return PREFIX + f"test{test_seq}"
+def parse_args():
+    import argparse
+    ap = argparse.ArgumentParser(prog='CoverUp')
+    ap.add_argument('cov_json', type=Path)
+
+    # "gpt-3.5-turbo", "gpt-3.5-turbo-16k",
+    ap.add_argument('--model', type=str, default='gpt-4')
+
+    # FIXME derive this somehow?
+    ap.add_argument('--tests-dir', type=Path, default='tests')
+
+    # FIXME derive this somehow?
+    ap.add_argument('--source-dir', type=str, default='src')
+
+    return ap.parse_args()
+
+args = parse_args()
+
+log = open(PREFIX + "-log", "w", buffering=1)    # 1 = line buffered
+
+test_seq = None
+def get_test_path(advance = False):
+    global test_seq
+
+    if advance or test_seq is None:
+        test_seq = 1 if test_seq is None else test_seq+1
+
+        while True:
+            p = args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
+            if not p.exists():
+                break
+
+            test_seq += 1
+
+        return p
+
+    return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
 
 
-def get_missing_coverage(jsonfile, path):
+def get_missing_coverage(jsonfile, base_path = ''):
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
     """
@@ -42,8 +61,8 @@ def get_missing_coverage(jsonfile, path):
     code_segs = []
 
     for fname in cov['files']:
-        with open(path + fname, "r") as src:
-            tree = ast.parse(src.read(), path + fname)
+        with open(base_path + fname, "r") as src:
+            tree = ast.parse(src.read(), base_path + fname)
 
         code_this_file = defaultdict(set)
 
@@ -54,6 +73,8 @@ def get_missing_coverage(jsonfile, path):
                         begin = node.lineno
                         for d in node.decorator_list: # skip back to include decorators, in case they matter
                             begin = min(begin, d.lineno)
+
+                        # FIXME limit size somehow
 
                         #print(f"{fname} line {line} -> {str(node)} {begin}..{node.end_lineno}")
                         code_this_file[(node.name, begin, node.end_lineno)].add(line)
@@ -71,29 +92,27 @@ def get_missing_coverage(jsonfile, path):
 def measure_coverage(test: str):
     import sys
 
-    fname = current_test()
-    fname_test = fname + ".py"
-    fname_json = fname + ".json"
+    test_path = get_test_path()
+    json_path = Path("/tmp") / f"{test_path.stem}.json"     # FIXME use temporary for json
 
-    with open(fname_test, "w") as tmp:
-        tmp.write(test)
+    with test_path.open("w") as test_file:
+        test_file.write(test)
 
-    # note response must be JSON
-    p = subprocess.run(f"{sys.executable} -m slipcover --json --out {fname_json} -m pytest {fname_test}".split(),
-                       check=True, capture_output=True)
+    p = subprocess.run(f"{sys.executable} -m slipcover --json --out {json_path} -m pytest {test_path}".split(),
+                       check=True, capture_output=True, timeout=60)
     log.write(str(p.stdout, 'UTF-8') + "\n")
-    #return str(p.stdout, 'UTF-8')
-    with open(fname_json) as j:
+
+    with json_path.open() as j:
         cov = json.load(j)
 
     return cov["files"]
 
 
-def improve_coverage(missing, path):
+def improve_coverage(missing, base_path = ''):
     fname, objname, line_range, missing_lines = missing
     print(f"\n=== {objname} ({fname}) ===")
 
-    with open(path + fname, "r") as src:
+    with open(base_path + fname, "r") as src:
         excerpt = ''.join(src.readlines()[line_range[0]-1:line_range[1]])
 
     messages = [{"role": "user",
@@ -112,23 +131,6 @@ when proposing a new test or correcting one you previously proposed.
 """
             }]
 
-    functions = [
-        {
-            "name": "measure_coverage",
-            "description": "Returns SlipCover coverage results from executing the given test script",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "test": {
-                        "type": "string",
-                        "description": "The entire Python pytest script to execute, as a single string",
-                    },
-                },
-                "required": ["test"],
-            },
-        }
-    ]
-
     log.write(messages[0]['content'] + "\n---\n")
 
     attempts = 0
@@ -137,6 +139,7 @@ when proposing a new test or correcting one you previously proposed.
         if (attempts > 5):
             log.write("Too many attempts, giving up\n---\n")
             print("giving up")
+            get_test_path().unlink()
             break
 
         attempts += 1
@@ -145,17 +148,13 @@ when proposing a new test or correcting one you previously proposed.
         sleep = 1
         while True:
             try:
-                args = {
-                    'model': MODEL,
+                completion_args = {
+                    'model': args.model,
                     'messages': messages,
                     'temperature': 0
                 }
 
-                if USE_FUNCTIONS:
-                    args['functions'] = functions
-                    args['function_call'] = 'auto'
-
-                response = openai.ChatCompletion.create(**args)
+                response = openai.ChatCompletion.create(**completion_args)
                 break
 
             except (openai.error.ServiceUnavailableError,
@@ -170,6 +169,7 @@ when proposing a new test or correcting one you previously proposed.
                 # usually "maximum context length" XXX check for this?
                 log.write(f"Received {e}: giving up\n")
                 print(f"Received {e}: giving up")
+                get_test_path().unlink()
                 return
 
         response_message = response["choices"][0]["message"]
@@ -180,83 +180,59 @@ when proposing a new test or correcting one you previously proposed.
 
         messages.append(response_message)
 
-        if (call := response_message.get("function_call")):
-            func_name = call['name']
-            func_args = json.loads(call['arguments'])
-
-            log.write(f"calling {func_name}({func_args})\n")
-            assert func_name == 'measure_coverage'
-
-            try:
-                last_test = func_args['test']
-
-                print(f"calling {func_name} {func_args}")
-                result = globals()[func_name](**func_args)
-                result = result[fname]
-                log.write(f"result: {result}\n")
-
-                messages.append({
-                    "role": "function",
-                    "name": func_name,
-                    "content": json.dumps(result)
-                })
-                log.write(messages[-1]['content'] + "\n---\n")
-
-            except subprocess.CalledProcessError as e:
-                messages.append({
-                    "role": "user",
-                    "content": "Executing that function yields an error:\n\n" + str(e.output, 'UTF-8')
-                })
-                log.write(messages[-1]['content'] + "\n---\n")
-
+        if '```python' in response_message['content']:
+            import re
+            m = re.search('^```python(.*?)^```$', response_message['content'], re.M|re.S)
+            if m:
+                last_test = m.group(1)
         else:
-            if '```python' in response_message['content']:
-                import re
-                m = re.search('^```python(.*?)^```$', response_message['content'], re.M|re.S)
-                if m:
-                    last_test = m.group(1)
-            else:
-                log.write("No Python code in GPT response, giving up\n---\n")
-                print("No Python code in GPT response, giving up")
+            log.write("No Python code in GPT response, giving up\n---\n")
+            print("No Python code in GPT response, giving up")
+            get_test_path().unlink()
+            break
+
+        try:
+            result = measure_coverage(last_test)
+            result = result[fname]
+
+            orig_missing = set(missing_lines)
+            new_covered = set(result['executed_lines'])
+            now_missing = orig_missing - new_covered
+
+            print(f"Previously missing: {list(orig_missing)}")
+            print(f"Still missing:      {list(now_missing)}")
+
+            if len(now_missing) < len(orig_missing):
+                # good 'nough
+                get_test_path(advance=True)
                 break
 
-            try:
-                result = measure_coverage(last_test)
-                result = result[fname]
-
-                orig_missing = set(missing_lines)
-                new_covered = set(result['executed_lines'])
-                now_missing = orig_missing - new_covered
-
-                print(f"Previously missing: {list(orig_missing)}")
-                print(f"Still missing:      {list(now_missing)}")
-
-                if len(now_missing) < len(orig_missing):
-                    shutil.copyfile(current_test() + ".py", COVERUP_TESTS_DIR + current_test() + ".py")
-                    global test_seq
-                    test_seq += 1
-                    break
-
-                messages.append({
-                    "role": "user",
-                    "content": f"""
+            messages.append({
+                "role": "user",
+                "content": f"""
 This test does not improve coverage: {'lines' if len(missing_lines)>1 else 'line'}
 {", ".join(map(str, missing_lines))} still {'do' if len(missing_lines)>1 else 'does'} not execute.
 """
-                })
-                log.write(messages[-1]['content'] + "\n---\n")
+            })
+            log.write(messages[-1]['content'] + "\n---\n")
 
-            except subprocess.CalledProcessError as e:
-                messages.append({
-                    "role": "user",
-                    "content": "Executing the test yields an error:\n\n" + str(e.output, 'UTF-8')
-                })
-                log.write(messages[-1]['content'] + "\n---\n")
+        except subprocess.TimeoutExpired:
+            log.write("measure_coverage timed out, giving up\n---\n")
+            print("measure_coverage timed out, giving up")
+            get_test_path().unlink()
+            break
+
+        except subprocess.CalledProcessError as e:
+            messages.append({
+                "role": "user",
+                "content": "Executing the test yields an error:\n\n" + str(e.output, 'UTF-8')
+            })
+            log.write(messages[-1]['content'] + "\n---\n")
 
 
-
-missing = get_missing_coverage(COVJSON, PATH)
-for m in missing:
+for m in get_missing_coverage(args.cov_json):
     fname, objname, line_range, missing_lines = m
-    if not fname.startswith('src/'): continue  # FIXME need to derive this somehow, or handle tests somehow
-    improve_coverage(m, PATH)
+    if not fname.startswith(args.source_dir):
+        continue
+
+    improve_coverage(m)
