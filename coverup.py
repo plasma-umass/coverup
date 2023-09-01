@@ -26,6 +26,8 @@ def parse_args():
     # FIXME derive this somehow?
     ap.add_argument('--source-dir', type=str, default='src')
 
+    ap.add_argument('--source-file', type=str)
+
     return ap.parse_args()
 
 args = parse_args()
@@ -51,6 +53,13 @@ def get_test_path(advance = False):
     return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
 
 
+def delete_last_test():
+    try:
+        get_test_path().unlink()
+    except FileNotFoundError:
+        pass
+
+
 def get_missing_coverage(jsonfile, base_path = ''):
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
@@ -60,31 +69,54 @@ def get_missing_coverage(jsonfile, base_path = ''):
 
     code_segs = []
 
+    def find_enclosing(root, line):
+        for node in ast.walk(root):
+            if node is root:
+                continue
+
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and \
+               hasattr(node, "lineno") and node.lineno <= line <= node.end_lineno:
+                return node
+
+    def get_line_range(node):
+        begin = node.lineno
+        for d in node.decorator_list: # skip back to include decorators, in case they matter
+            begin = min(begin, d.lineno)
+
+        return (begin, node.end_lineno)
+
     for fname in cov['files']:
         with open(base_path + fname, "r") as src:
             tree = ast.parse(src.read(), base_path + fname)
 
         code_this_file = defaultdict(set)
+        ctx_this_file = defaultdict(set)
 
         for line in cov['files'][fname]['missing_lines']:
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                    if hasattr(node, "lineno") and node.lineno <= line <= node.end_lineno:
-                        begin = node.lineno
-                        for d in node.decorator_list: # skip back to include decorators, in case they matter
-                            begin = min(begin, d.lineno)
+            if node := find_enclosing(tree, line):
+                begin, end = get_line_range(node)
 
-                        # FIXME limit size somehow
+                context = []
 
-                        #print(f"{fname} line {line} -> {str(node)} {begin}..{node.end_lineno}")
-                        code_this_file[(node.name, begin, node.end_lineno)].add(line)
+                # FIXME make configurable; base it on tokens, not lines
+                while end - begin > 100:
+                    child = find_enclosing(node, line)
+                    if not child:
                         break
+
+                    context.append((begin, node.lineno+1))
+                    begin, end = get_line_range(child)
+                    node = child
+
+                #print(f"{fname} line {line} -> {str(node)} {begin}..{node.end_lineno}")
+                code_this_file[(node.name, begin, end)].add(line)
+                ctx_this_file[(node.name, begin, end)] = context
 
         if code_this_file:
             for it in code_this_file:
                 name, first, last = it
                 missing = code_this_file[it]
-                code_segs.append([fname, name, (first, last), list(missing)])
+                code_segs.append([fname, name, (first, last), list(missing), ctx_this_file[it]])
 
     return code_segs
 
@@ -109,17 +141,28 @@ def measure_coverage(test: str):
 
 
 def improve_coverage(missing, base_path = ''):
-    fname, objname, line_range, missing_lines = missing
+    fname, objname, line_range, missing_lines, context = missing
     print(f"\n=== {objname} ({fname}) ===")
 
+    excerpt = []
     with open(base_path + fname, "r") as src:
-        excerpt = ''.join(src.readlines()[line_range[0]-1:line_range[1]])
+        code = src.readlines()
+
+        for b, e in context:
+            for i in range(b, e):
+                excerpt.extend([f"{i:10}: ", code[i-1]])
+
+        b, e = line_range
+        for i in range(b, e+1):
+            excerpt.extend([f"{i:10}: ", code[i-1]])
+
+    excerpt = ''.join(excerpt)
 
     messages = [{"role": "user",
                  "content": f"""
-The code below, which starts on line {line_range[0]} of {fname},
-does not achieve full line coverage: when tested, {'lines' if len(missing_lines)>1 else 'line'}
-{", ".join(map(str, missing_lines))} {'do' if len(missing_lines)>1 else 'does'} not execute.
+The code below, extracted from {fname}, does not achieve full line coverage:
+when tested, {'lines' if len(missing_lines)>1 else 'line'} {", ".join(map(str, missing_lines))}
+{'do' if len(missing_lines)>1 else 'does'} not execute.
 Create a new pytest test function that executes these missing lines, always checking
 using the provided function that the new version is correct and indeed improves
 coverage. Do not propose a new version without first checking that it is correct
@@ -139,7 +182,7 @@ when proposing a new test or correcting one you previously proposed.
         if (attempts > 5):
             log.write("Too many attempts, giving up\n---\n")
             print("giving up")
-            get_test_path().unlink()
+            delete_last_test()
             break
 
         attempts += 1
@@ -169,7 +212,7 @@ when proposing a new test or correcting one you previously proposed.
                 # usually "maximum context length" XXX check for this?
                 log.write(f"Received {e}: giving up\n")
                 print(f"Received {e}: giving up")
-                get_test_path().unlink()
+                delete_last_test()
                 return
 
         response_message = response["choices"][0]["message"]
@@ -188,7 +231,7 @@ when proposing a new test or correcting one you previously proposed.
         else:
             log.write("No Python code in GPT response, giving up\n---\n")
             print("No Python code in GPT response, giving up")
-            get_test_path().unlink()
+            delete_last_test()
             break
 
         try:
@@ -219,7 +262,7 @@ This test does not improve coverage: {'lines' if len(missing_lines)>1 else 'line
         except subprocess.TimeoutExpired:
             log.write("measure_coverage timed out, giving up\n---\n")
             print("measure_coverage timed out, giving up")
-            get_test_path().unlink()
+            delete_last_test()
             break
 
         except subprocess.CalledProcessError as e:
@@ -231,8 +274,12 @@ This test does not improve coverage: {'lines' if len(missing_lines)>1 else 'line
 
 
 for m in get_missing_coverage(args.cov_json):
-    fname, objname, line_range, missing_lines = m
+    fname, objname, line_range, missing_lines, context = m
     if not fname.startswith(args.source_dir):
+        continue
+
+    if args.source_file and args.source_file not in fname:
+        print(f"skipping {m}")
         continue
 
     improve_coverage(m)
