@@ -12,6 +12,8 @@ PREFIX = 'coverup'
 openai.key=os.environ['OPENAI_API_KEY']
 openai.organization=os.environ['OPENAI_PLASMA_ORG'] # FIXME
 
+total_tokens = 0
+
 
 def parse_args():
     import argparse
@@ -28,6 +30,8 @@ def parse_args():
     ap.add_argument('--source-dir', type=str, default='src')
 
     ap.add_argument('--source-file', type=str)
+
+    ap.add_argument('--checkpoint', action='store_true')
 
     return ap.parse_args()
 
@@ -166,7 +170,8 @@ def measure_coverage(test: str):
     with test_path.open("w") as test_file:
         test_file.write(test)
 
-    p = subprocess.run(f"{sys.executable} -m slipcover --json --out {json_path} -m pytest {test_path}".split(),
+    # -qq to cut down on tokens
+    p = subprocess.run(f"{sys.executable} -m slipcover --json --out {json_path} -m pytest -qq {test_path}".split(),
                        check=True, capture_output=True, timeout=60)
     log.write(str(p.stdout, 'UTF-8') + "\n")
 
@@ -188,11 +193,10 @@ def improve_coverage(seg: CodeSegment):
                  "content": f"""
 The code below, extracted from {seg.filename}, does not achieve full line coverage:
 when tested, {pl(seg.missing_lines,'line')} {seg.get_missing()} {pl(seg.missing_lines,'does','do')} not execute.
-Create a new pytest test function that executes these missing lines, always checking
-using the provided function that the new version is correct and indeed improves
-coverage. Do not propose a new version without first checking that it is correct
-and that it provides improved coverage. Always send entire Python test scripts
-when proposing a new test or correcting one you previously proposed.
+Create a new pytest test function that executes these missing lines, always making
+sure that the new test is correct and indeed improves coverage.  Always send entire Python
+test scripts when proposing a new test or correcting one you previously proposed.
+Respond ONLY with the Python code enclosed in backticks, without any explanation.
 ```python
 {seg.get_excerpt()}
 ```
@@ -244,8 +248,12 @@ when proposing a new test or correcting one you previously proposed.
         response_message = response["choices"][0]["message"]
 
         if response_message['content']:
-            print(f"received \"{response_message['content'][:75]}...\"")
+            global total_tokens
+            tokens = response['usage']['total_tokens']
+            print(f"received response; usage: {total_tokens}+{tokens} = {total_tokens+tokens}")
+            total_tokens += tokens
             log.write(response_message['content'] + "\n---\n")
+            log.write(f"usage: {total_tokens}+{tokens} = {total_tokens+tokens}\n")
 
         messages.append(response_message)
 
@@ -292,6 +300,7 @@ This test still lacks coverage: {'lines' if len(now_missing)>1 else 'line'}
             break
 
         except subprocess.CalledProcessError as e:
+            print("causes error.")
             messages.append({
                 "role": "user",
                 "content": "Executing the test yields an error:\n\n" + str(e.output, 'UTF-8')
@@ -299,12 +308,41 @@ This test still lacks coverage: {'lines' if len(now_missing)>1 else 'line'}
             log.write(messages[-1]['content'] + "\n---\n")
 
 
-for seg in get_missing_coverage(args.cov_json):
-    if not seg.filename.startswith(args.source_dir):
-        continue
+if __name__ == "__main__":
+    segments = sorted(get_missing_coverage(args.cov_json), key=lambda seg: len(seg.missing_lines), reverse=True)
+    total = sum(map(lambda seg: len(seg.missing_lines), segments))
 
-    if args.source_file and args.source_file not in seg.filename:
-        print(f"skipping {seg}")
-        continue
+    checkpoint_file = Path(PREFIX + "-checkpoint.json")
+    done = set()
 
-    improve_coverage(seg)
+    if args.checkpoint:
+        try:
+            with checkpoint_file.open("r") as f:
+                ckpt = json.load(f)
+                done = set(ckpt['done'])
+                total_tokens = ckpt['total_tokens']
+        except json.decoder.JSONDecodeError:
+            pass
+        except FileNotFoundError:
+            pass
+
+    for seg in segments:
+        if not seg.filename.startswith(args.source_dir) or \
+           seg.missing_lines.issubset(done):
+            continue
+
+        if args.source_file and args.source_file not in seg.filename:
+            print(f"skipping {seg}")
+            continue
+
+        improve_coverage(seg)
+
+        done.update(seg.missing_lines)
+        if args.checkpoint:
+            with checkpoint_file.open("w") as f:
+                json.dump({
+                    'done': list(done),
+                    'total_tokens': total_tokens
+                }, f)
+
+        print(f"{len(done)}/{total}  {len(done)/total:.0%}")
