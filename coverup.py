@@ -10,28 +10,41 @@ import typing
 
 PREFIX = 'coverup'
 openai.key=os.environ['OPENAI_API_KEY']
-openai.organization=os.environ['OPENAI_PLASMA_ORG'] # FIXME
+openai.organization=os.environ['OPENAI_ORGANIZATION']
+
+CKPT_FILE = PREFIX + "-ckpt.json"
 
 total_tokens = 0
 
 
 def parse_args():
     import argparse
-    ap = argparse.ArgumentParser(prog='CoverUp')
-    ap.add_argument('cov_json', type=Path)
+    ap = argparse.ArgumentParser(prog='CoverUp',
+                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    ap.add_argument('cov_json', type=Path,
+                    help='SlipCover JSON output file with coverage information')
 
     # "gpt-3.5-turbo", "gpt-3.5-turbo-16k",
-    ap.add_argument('--model', type=str, default='gpt-4')
+    ap.add_argument('--model', type=str, default='gpt-4',
+                    help='OpenAI model to use')
 
-    # FIXME derive this somehow?
-    ap.add_argument('--tests-dir', type=Path, default='tests')
+    # TODO derive this somehow?
+    ap.add_argument('--tests-dir', type=Path, default='tests',
+                    help='directory where tests reside')
 
-    # FIXME derive this somehow?
-    ap.add_argument('--source-dir', type=str, default='src')
+    # TODO derive this somehow?
+    ap.add_argument('--source-dir', type=str, default='src',
+                    help='directory where sources reside')
 
-    ap.add_argument('--source-file', type=str)
+    ap.add_argument('--checkpoint', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help=f'whether to save progress to {CKPT_FILE}')
 
-    ap.add_argument('--checkpoint', action='store_true')
+    ap.add_argument('--line-limit', type=int, default=50,
+                    help='attempt to keep code segment(s) at or below this limit')
+
+    ap.add_argument('--only-file', type=str,
+                    help='only process segments for the given source file')
 
     return ap.parse_args()
 
@@ -39,34 +52,36 @@ args = parse_args()
 
 log = open(PREFIX + "-log", "w", buffering=1)    # 1 = line buffered
 
-test_seq = None
-def get_test_path(advance = False):
+test_seq = 1
+def new_test_file():
     global test_seq
 
-    if advance or test_seq is None:
-        test_seq = 1 if test_seq is None else test_seq+1
+    while True:
+        p = args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
+        try:
+            p.touch(exist_ok=False)
+            return
+        except FileExistsError:
+            pass
 
-        while True:
-            p = args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
-            if not p.exists():
-                break
+        test_seq += 1
 
-            test_seq += 1
-
-        return p
-
-    return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
+def get_tmp_test_path():
+    # Using a fixed temporary file makes caching easier, as the error output, etc.
+    # doesn't change due to a different path.
+    return args.tests_dir / f"test_{PREFIX}_tmp.py"
 
 
-def delete_last_test():
+def cleanup():
     try:
-        get_test_path().unlink()
+        get_tmp_test_path().unlink()
     except FileNotFoundError:
         pass
 
 
 class CodeSegment:
-    def __init__(self, filename: Path, name: str, begin: int, end: int, missing_lines: typing.Set[int],
+    def __init__(self, filename: Path, name: str, begin: int, end: int,
+                 missing_lines: typing.Set[int],
                  context: typing.List[typing.Tuple[int, int]]):
         self.filename = filename
         self.name = name
@@ -96,12 +111,30 @@ class CodeSegment:
 
 
     def get_missing(self):
-        # FIXME compress by using ranges
+        # TODO compress by using ranges
         return ", ".join(map(str, self.missing_lines))
 
 
-# FIXME make size_limit configurable; base it on tokens, not lines?
-def get_missing_coverage(jsonfile, base_path = '', size_limit=100):
+def measure_coverage(test: str):
+    import sys
+    import tempfile
+
+    test_path = get_tmp_test_path()
+    test_path.write_text(test)
+
+    with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
+        # -qq to cut down on tokens
+        p = subprocess.run((f"{sys.executable} -m slipcover --json --out {j.name} " +
+                            f"-m pytest -qq {test_path}").split(),
+                           check=True, capture_output=True, timeout=60)
+        log.write(str(p.stdout, 'UTF-8') + "\n")
+
+        cov = json.load(j)
+
+    return cov["files"]
+
+
+def get_missing_coverage(jsonfile, base_path = ''):
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
     """
@@ -139,7 +172,7 @@ def get_missing_coverage(jsonfile, base_path = '', size_limit=100):
 
                 context = []
 
-                while end - begin > size_limit:
+                while end - begin > args.line_limit:
                     child = find_enclosing(node, line)
                     if not child:
                         break
@@ -159,26 +192,6 @@ def get_missing_coverage(jsonfile, base_path = '', size_limit=100):
                 code_segs.append(CodeSegment(fname, name, begin, end, missing, ctx_this_file[it]))
 
     return code_segs
-
-
-def measure_coverage(test: str):
-    import sys
-
-    test_path = get_test_path()
-    json_path = Path("/tmp") / f"{test_path.stem}.json"     # FIXME use temporary for json
-
-    with test_path.open("w") as test_file:
-        test_file.write(test)
-
-    # -qq to cut down on tokens
-    p = subprocess.run(f"{sys.executable} -m slipcover --json --out {json_path} -m pytest -qq {test_path}".split(),
-                       check=True, capture_output=True, timeout=60)
-    log.write(str(p.stdout, 'UTF-8') + "\n")
-
-    with json_path.open() as j:
-        cov = json.load(j)
-
-    return cov["files"]
 
 
 def improve_coverage(seg: CodeSegment):
@@ -211,7 +224,6 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         if (attempts > 5):
             log.write("Too many attempts, giving up\n---\n")
             print("giving up")
-            delete_last_test()
             break
 
         attempts += 1
@@ -242,7 +254,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 # usually "maximum context length" XXX check for this?
                 log.write(f"Received {e}: giving up\n")
                 print(f"Received {e}: giving up")
-                delete_last_test()
+                cleanup()
                 return
 
         response_message = response["choices"][0]["message"]
@@ -265,7 +277,6 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         else:
             log.write("No Python code in GPT response, giving up\n---\n")
             print("No Python code in GPT response, giving up")
-            delete_last_test()
             break
 
         try:
@@ -280,15 +291,17 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             # XXX insist on len(now_missing) == 0 while saving best test?
             if len(now_missing) < len(seg.missing_lines):
                 # good 'nough
-                # FIXME change this to save_test and writing to temporary files while trying
-                get_test_path(advance=True)
+                new_test = new_test_file()
+                print(f"Saved as {new_test}")
+                log.write(f"Saved as {new_test}\n")
+                new_test.write_text(last_test)
                 break
 
             messages.append({
                 "role": "user",
                 "content": f"""
-This test still lacks coverage: {'lines' if len(now_missing)>1 else 'line'}
-{", ".join(map(str, now_missing))} still {'do' if len(now_missing)>1 else 'does'} not execute.
+This test still lacks coverage: {pl(now_missing, 'line')}
+{", ".join(map(str, now_missing))} still {pl(now_missing, 'does', 'do')} not execute.
 """
             })
             log.write(messages[-1]['content'] + "\n---\n")
@@ -296,7 +309,6 @@ This test still lacks coverage: {'lines' if len(now_missing)>1 else 'line'}
         except subprocess.TimeoutExpired:
             log.write("measure_coverage timed out, giving up\n---\n")
             print("measure_coverage timed out, giving up")
-            delete_last_test()
             break
 
         except subprocess.CalledProcessError as e:
@@ -307,12 +319,15 @@ This test still lacks coverage: {'lines' if len(now_missing)>1 else 'line'}
             })
             log.write(messages[-1]['content'] + "\n---\n")
 
+    cleanup()
+
 
 if __name__ == "__main__":
-    segments = sorted(get_missing_coverage(args.cov_json), key=lambda seg: len(seg.missing_lines), reverse=True)
+    segments = sorted(get_missing_coverage(args.cov_json),
+                      key=lambda seg: len(seg.missing_lines), reverse=True)
     total = sum(len(seg.missing_lines) for seg in segments)
 
-    checkpoint_file = Path(PREFIX + "-checkpoint.json")
+    checkpoint_file = Path(CKPT_FILE)
     done = defaultdict(set)
     done_count = 0
 
@@ -333,7 +348,7 @@ if __name__ == "__main__":
            seg.missing_lines.issubset(done[seg.filename]):
             continue
 
-        if args.source_file and args.source_file not in seg.filename:
+        if args.only_file and args.only_file not in seg.filename:
             print(f"skipping {seg}")
             continue
 
