@@ -216,7 +216,6 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         attempts += 1
 
-        print("sent request, waiting on GPT...")
         sleep = 1
         while True:
             try:
@@ -226,6 +225,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                     'temperature': 0
                 }
 
+                print("sent request, waiting on GPT...")
                 response = openai.ChatCompletion.create(**completion_args)
                 break
 
@@ -250,10 +250,10 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         if response_message['content']:
             global total_tokens
             tokens = response['usage']['total_tokens']
-            print(f"received response; usage: {total_tokens}+{tokens} = {total_tokens+tokens}")
+            print(f"received response; usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens")
             total_tokens += tokens
             log.write(response_message['content'] + "\n---\n")
-            log.write(f"usage: {total_tokens}+{tokens} = {total_tokens+tokens}\n")
+            log.write(f"usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens\n")
 
         messages.append(response_message)
 
@@ -310,16 +310,18 @@ This test still lacks coverage: {'lines' if len(now_missing)>1 else 'line'}
 
 if __name__ == "__main__":
     segments = sorted(get_missing_coverage(args.cov_json), key=lambda seg: len(seg.missing_lines), reverse=True)
-    total = sum(map(lambda seg: len(seg.missing_lines), segments))
+    total = sum(len(seg.missing_lines) for seg in segments)
 
     checkpoint_file = Path(PREFIX + "-checkpoint.json")
-    done = set()
+    done = defaultdict(set)
+    done_count = 0
 
     if args.checkpoint:
         try:
             with checkpoint_file.open("r") as f:
                 ckpt = json.load(f)
-                done = set(ckpt['done'])
+                done.update({k:set(v) for k,v in ckpt['done'].items()})
+                done_count = sum(len(s) for s in done.values())
                 total_tokens = ckpt['total_tokens']
         except json.decoder.JSONDecodeError:
             pass
@@ -328,7 +330,7 @@ if __name__ == "__main__":
 
     for seg in segments:
         if not seg.filename.startswith(args.source_dir) or \
-           seg.missing_lines.issubset(done):
+           seg.missing_lines.issubset(done[seg.filename]):
             continue
 
         if args.source_file and args.source_file not in seg.filename:
@@ -337,12 +339,15 @@ if __name__ == "__main__":
 
         improve_coverage(seg)
 
-        done.update(seg.missing_lines)
+        done[seg.filename].update(seg.missing_lines)
         if args.checkpoint:
             with checkpoint_file.open("w") as f:
                 json.dump({
-                    'done': list(done),
+                    'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
                     'total_tokens': total_tokens
                 }, f)
 
-        print(f"{len(done)}/{total}  {len(done)/total:.0%}")
+        done_count = sum(len(s) for s in done.values())
+        print(f"{done_count}/{total}  {done_count/total:.0%}")
+
+    print(f"{len(done)}/{total}  {len(done)/total:.0%}")
