@@ -6,6 +6,7 @@ import ast
 from collections import defaultdict
 from pathlib import Path
 import typing
+import re
 
 
 PREFIX = 'coverup'
@@ -13,6 +14,7 @@ openai.key=os.environ['OPENAI_API_KEY']
 openai.organization=os.environ['OPENAI_ORGANIZATION']
 
 CKPT_FILE = PREFIX + "-ckpt.json"
+CACHE_FILE = Path(PREFIX + "-cache.json")
 
 total_tokens = 0
 
@@ -46,11 +48,42 @@ def parse_args():
     ap.add_argument('--only-file', type=str,
                     help='only process segments for the given source file')
 
+    ap.add_argument('--cache', default=False,
+                    action=argparse.BooleanOptionalAction,
+                    help=f'whether to cache model responses')
+
     return ap.parse_args()
+
+
+def load_cache():
+    cache = dict()
+    try:
+        with CACHE_FILE.open("r") as f:
+            for line in f.readlines():
+                cache.update(json.loads(line))
+
+    except json.decoder.JSONDecodeError:
+        pass
+    except FileNotFoundError:
+        pass
+
+    return cache
+
 
 args = parse_args()
 
 log = open(PREFIX + "-log", "w", buffering=1)    # 1 = line buffered
+cache = load_cache() if args.cache else None
+
+def update_cache(key: str, response: dict):
+    global cache
+    cache[key] = response
+
+    # a jsonl file
+    with CACHE_FILE.open("a") as f:
+        f.write(json.dumps({key: response}))
+        f.write("\n")
+
 
 test_seq = 1
 def new_test_file():
@@ -60,11 +93,12 @@ def new_test_file():
         p = args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
         try:
             p.touch(exist_ok=False)
-            return
+            return p
         except FileExistsError:
             pass
 
         test_seq += 1
+
 
 def get_tmp_test_path():
     # Using a fixed temporary file makes caching easier, as the error output, etc.
@@ -194,6 +228,47 @@ def get_missing_coverage(jsonfile, base_path = ''):
     return code_segs
 
 
+def do_chat(completion: dict) -> str:
+    sleep = 1
+    while True:
+        try:
+            if cache is not None:
+                key = json.dumps(completion)
+                # Execution-unique addresses may be present in error outputs,
+                # such as when objects are passed as arguments.
+                key = re.sub("object at 0x[0-9a-fA-F]+\\b", "object at ...", key)
+
+                if not (response := cache.get(key, None)):
+                    print("sent request, waiting on GPT...")
+                    response = openai.ChatCompletion.create(**completion)
+
+                    update_cache(key, response)
+                else:
+                    print("using cached response")
+                    response['cached'] = True
+
+            else:
+                print("sent request, waiting on GPT...")
+                response = openai.ChatCompletion.create(**completion)
+
+            return response
+
+        except (openai.error.ServiceUnavailableError,
+                openai.error.RateLimitError,
+                openai.error.Timeout) as e:
+            print(e)
+            print(f"waiting {sleep}s)")
+            import time
+            time.sleep(sleep)
+            sleep *= 2
+
+        except openai.error.InvalidRequestError as e:
+            # usually "maximum context length" XXX check for this?
+            log.write(f"Received {e}\n")
+            print(f"Received {e}")
+            return None
+
+
 def improve_coverage(seg: CodeSegment):
     print(f"\n=== {seg.name} ({seg.filename}) ===")
 
@@ -228,44 +303,21 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         attempts += 1
 
-        sleep = 1
-        while True:
-            try:
-                completion_args = {
-                    'model': args.model,
-                    'messages': messages,
-                    'temperature': 0
-                }
-
-                print("sent request, waiting on GPT...")
-                response = openai.ChatCompletion.create(**completion_args)
-                break
-
-            except (openai.error.ServiceUnavailableError,
-                    openai.error.RateLimitError,
-                    openai.error.Timeout) as e:
-                print(e)
-                print(f"waiting {sleep}s)")
-                import time
-                time.sleep(sleep)
-                sleep *= 2
-
-            except openai.error.InvalidRequestError as e:
-                # usually "maximum context length" XXX check for this?
-                log.write(f"Received {e}: giving up\n")
-                print(f"Received {e}: giving up")
-                cleanup()
-                return
+        if not (response := do_chat({'model': args.model, 'messages': messages,
+                                     'temperature': 0})):
+            log.write("giving up\n")
+            print("giving up")
+            break
 
         response_message = response["choices"][0]["message"]
+        log.write(response_message['content'] + "\n---\n")
 
-        if response_message['content']:
+        if 'cached' not in response:
             global total_tokens
             tokens = response['usage']['total_tokens']
             print(f"received response; usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens")
-            total_tokens += tokens
-            log.write(response_message['content'] + "\n---\n")
             log.write(f"usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens\n")
+            total_tokens += tokens
 
         messages.append(response_message)
 
@@ -302,6 +354,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 "content": f"""
 This test still lacks coverage: {pl(now_missing, 'line')}
 {", ".join(map(str, now_missing))} still {pl(now_missing, 'does', 'do')} not execute.
+Modify it to correct that; respond only with the Python code in backticks.
 """
             })
             log.write(messages[-1]['content'] + "\n---\n")
@@ -315,11 +368,10 @@ This test still lacks coverage: {pl(now_missing, 'line')}
             print("causes error.")
             messages.append({
                 "role": "user",
-                "content": "Executing the test yields an error:\n\n" + str(e.output, 'UTF-8')
+                "content": "Executing the test yields an error:\n\n" + str(e.output, 'UTF-8') + f"""\n\n
+Modify it to correct that; respond only with the Python code in backticks."""
             })
             log.write(messages[-1]['content'] + "\n---\n")
-
-    cleanup()
 
 
 if __name__ == "__main__":
@@ -352,7 +404,10 @@ if __name__ == "__main__":
             print(f"skipping {seg}")
             continue
 
-        improve_coverage(seg)
+        try:
+            improve_coverage(seg)
+        finally:
+            cleanup()
 
         done[seg.filename].update(seg.missing_lines)
         if args.checkpoint:
