@@ -118,6 +118,9 @@ class CodeSegment:
         return f"CodeSegment({self.name}, \"{self.filename}\" {self.begin}-{self.end-1})"
 
 
+    def identify(self) -> str:
+        return f"{self.filename}:{self.begin}-{self.end-1}"
+
     def get_excerpt(self, base_path = ''):
         excerpt = []
         with open(base_path + self.filename, "r") as src:
@@ -138,7 +141,11 @@ class CodeSegment:
         return ", ".join(map(str, self.missing_lines))
 
 
-def measure_coverage(test: str):
+def log_write(seg: CodeSegment, m: str) -> None:
+    log.write(f"---- {seg.identify()} ----\n{m}\n")
+
+
+def measure_coverage(seg: CodeSegment, test: str):
     import sys
     import tempfile
 
@@ -152,7 +159,7 @@ def measure_coverage(test: str):
             p = subprocess.run((f"{sys.executable} -m slipcover --json --out {j.name} " +
                                 f"-m pytest -qq {t.name}").split(),
                                check=True, capture_output=True, timeout=60)
-            log.write(str(p.stdout, 'UTF-8') + "\n")
+            log_write(seg, str(p.stdout, 'UTF-8'))
             cov = json.load(j)
 
     return cov["files"]
@@ -218,7 +225,7 @@ def get_missing_coverage(jsonfile, base_path = ''):
     return code_segs
 
 
-def do_chat(completion: dict) -> str:
+def do_chat(seg: CodeSegment, completion: dict) -> str:
     sleep = 1
     while True:
         try:
@@ -257,7 +264,7 @@ def do_chat(completion: dict) -> str:
 
         except openai.error.InvalidRequestError as e:
             # usually "maximum context length" XXX check for this?
-            log.write(f"Received {e}\n")
+            log_write(seg, f"Received {e}")
             print(f"Received {e}")
             return None
 
@@ -284,32 +291,31 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 """
             }]
 
-    log.write(messages[0]['content'] + "\n---\n")
+    log_write(seg, messages[0]['content'])
 
     attempts = 0
 
     while True:
         if (attempts > 5):
-            log.write("Too many attempts, giving up\n---\n")
+            log_write(seg, "Too many attempts, giving up")
             print("giving up")
             break
 
         attempts += 1
 
-        if not (response := do_chat({'model': args.model, 'messages': messages,
-                                     'temperature': 0})):
-            log.write("giving up\n")
+        if not (response := do_chat(seg, {'model': args.model, 'messages': messages, 'temperature': 0})):
+            log_write(seg, "giving up")
             print("giving up")
             break
 
         response_message = response["choices"][0]["message"]
-        log.write(response_message['content'] + "\n---\n")
+        log_write(seg, response_message['content'])
 
         if 'cached' not in response:
             global total_tokens
             tokens = response['usage']['total_tokens']
             print(f"received response; usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens")
-            log.write(f"usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens\n")
+            log_write(seg, f"usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens")
             total_tokens += tokens
 
         messages.append(response_message)
@@ -320,12 +326,12 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             if m:
                 last_test = m.group(1)
         else:
-            log.write("No Python code in GPT response, giving up\n---\n")
+            log_write(seg, "No Python code in GPT response, giving up")
             print("No Python code in GPT response, giving up")
             break
 
         try:
-            result = measure_coverage(last_test)
+            result = measure_coverage(seg, last_test)
 
             new_covered = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
             now_missing = seg.missing_lines - new_covered
@@ -338,7 +344,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 # good 'nough
                 new_test = new_test_file()
                 print(f"Saved as {new_test}")
-                log.write(f"Saved as {new_test}\n")
+                log_write(seg, f"Saved as {new_test}\n")
                 new_test.write_text(last_test)
                 break
 
@@ -350,10 +356,10 @@ This test still lacks coverage: {pl(now_missing, 'line')}
 Modify it to correct that; respond only with the Python code in backticks.
 """
             })
-            log.write(messages[-1]['content'] + "\n---\n")
+            log_write(seg, messages[-1]['content'])
 
         except subprocess.TimeoutExpired:
-            log.write("measure_coverage timed out, giving up\n---\n")
+            log_write(seg, "measure_coverage timed out, giving up")
             print("measure_coverage timed out, giving up")
             break
 
@@ -364,7 +370,7 @@ Modify it to correct that; respond only with the Python code in backticks.
                 "content": "Executing the test yields an error:\n\n" + str(e.output, 'UTF-8') + f"""\n\n
 Modify it to correct that; respond only with the Python code in backticks."""
             })
-            log.write(messages[-1]['content'] + "\n---\n")
+            log_write(seg, messages[-1]['content'])
 
 
 if __name__ == "__main__":
