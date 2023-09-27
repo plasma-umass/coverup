@@ -10,8 +10,10 @@ import re
 
 
 PREFIX = 'coverup'
+
 openai.key=os.environ['OPENAI_API_KEY']
-openai.organization=os.environ['OPENAI_ORGANIZATION']
+if 'OPENAI_ORGANIZATION' in os.environ:
+    openai.organization=os.environ['OPENAI_ORGANIZATION']
 
 CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
@@ -100,19 +102,6 @@ def new_test_file():
         test_seq += 1
 
 
-def get_tmp_test_path():
-    # Using a fixed temporary file makes caching easier, as the error output, etc.
-    # doesn't change due to a different path.
-    return args.tests_dir / f"test_{PREFIX}_tmp.py"
-
-
-def cleanup():
-    try:
-        get_tmp_test_path().unlink()
-    except FileNotFoundError:
-        pass
-
-
 class CodeSegment:
     def __init__(self, filename: Path, name: str, begin: int, end: int,
                  missing_lines: typing.Set[int],
@@ -153,17 +142,18 @@ def measure_coverage(test: str):
     import sys
     import tempfile
 
-    test_path = get_tmp_test_path()
-    test_path.write_text(test)
+    with tempfile.NamedTemporaryFile(prefix=PREFIX + "_tmp_", suffix='.py',
+                                     dir=str(args.tests_dir), mode="w") as t:
+        t.write(test)
+        t.flush()
 
-    with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
-        # -qq to cut down on tokens
-        p = subprocess.run((f"{sys.executable} -m slipcover --json --out {j.name} " +
-                            f"-m pytest -qq {test_path}").split(),
-                           check=True, capture_output=True, timeout=60)
-        log.write(str(p.stdout, 'UTF-8') + "\n")
-
-        cov = json.load(j)
+        with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
+            # -qq to cut down on tokens
+            p = subprocess.run((f"{sys.executable} -m slipcover --json --out {j.name} " +
+                                f"-m pytest -qq {t.name}").split(),
+                               check=True, capture_output=True, timeout=60)
+            log.write(str(p.stdout, 'UTF-8') + "\n")
+            cov = json.load(j)
 
     return cov["files"]
 
@@ -237,6 +227,9 @@ def do_chat(completion: dict) -> str:
                 # Execution-unique addresses may be present in error outputs,
                 # such as when objects are passed as arguments.
                 key = re.sub("object at 0x[0-9a-fA-F]+\\b", "object at ...", key)
+
+                # Clean up differences due to temporary file names
+                key = re.sub(f"{PREFIX}_tmp_.+?\\.py\\b", f"{PREFIX}_tmp.py", key)
 
                 if not (response := cache.get(key, None)):
                     print("sent request, waiting on GPT...")
@@ -404,10 +397,7 @@ if __name__ == "__main__":
             print(f"skipping {seg}")
             continue
 
-        try:
-            improve_coverage(seg)
-        finally:
-            cleanup()
+        improve_coverage(seg)
 
         done[seg.filename].update(seg.missing_lines)
         if args.checkpoint:
