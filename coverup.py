@@ -12,15 +12,8 @@ import re
 
 PREFIX = 'coverup'
 
-openai.key=os.environ['OPENAI_API_KEY']
-if 'OPENAI_ORGANIZATION' in os.environ:
-    openai.organization=os.environ['OPENAI_ORGANIZATION']
-
 CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
-
-total_tokens = 0
-
 
 def parse_args():
     import argparse
@@ -73,11 +66,6 @@ def load_cache():
     return cache
 
 
-args = parse_args()
-
-log = open(PREFIX + "-log", "w", buffering=1)    # 1 = line buffered
-cache = load_cache() if args.cache else None
-
 def update_cache(key: str, response: dict):
     global cache
     cache[key] = response
@@ -102,6 +90,24 @@ def new_test_file():
 
         test_seq += 1
 
+def format_ranges(lines: typing.Set[int]) -> str:
+    def get_range(lines):
+        it = iter(sorted(lines))
+
+        a = next(it, None)
+        while a is not None:
+            b = a
+            while (n := next(it, None)) == b+1:
+                b = n
+
+            if a == b:
+                yield str(a)
+            else:
+                yield f"{a}-{b}"
+
+            a = n
+
+    return ", ".join(get_range(lines))
 
 class CodeSegment:
     def __init__(self, filename: Path, name: str, begin: int, end: int,
@@ -138,8 +144,7 @@ class CodeSegment:
 
 
     def get_missing(self):
-        # TODO compress by using ranges
-        return ", ".join(map(str, self.missing_lines))
+        return format_ranges(self.missing_lines)
 
 
 def log_write(seg: CodeSegment, m: str) -> None:
@@ -378,6 +383,17 @@ Modify it to correct that; respond only with the Python code in backticks."""
 
 
 if __name__ == "__main__":
+    args = parse_args()
+
+    log = open(PREFIX + "-log", "w", buffering=1)    # 1 = line buffered
+    cache = load_cache() if args.cache else None
+
+    openai.key=os.environ['OPENAI_API_KEY']
+    if 'OPENAI_ORGANIZATION' in os.environ:
+        openai.organization=os.environ['OPENAI_ORGANIZATION']
+
+    total_tokens = 0
+
     segments = sorted(get_missing_coverage(args.cov_json),
                       key=lambda seg: len(seg.missing_lines), reverse=True)
 
