@@ -115,7 +115,8 @@ def format_ranges(lines: typing.Set[int]) -> str:
 
 
 def clean_error(error: str) -> str:
-    """Removes pytest-generated (and possibly other) output not needed by GPT, to cut down on token use."""
+    """Conservatively removes pytest-generated (and possibly other) output not needed by GPT,
+       to cut down on token use.  Conservatively: if the format isn't recognized, leave it alone."""
 
     if (match := re.search("=====+ (?:FAILURES|ERRORS) ===+\n" +\
                            "___+ [^\n]+ _+___\n" +\
