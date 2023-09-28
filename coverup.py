@@ -380,28 +380,26 @@ Modify it to correct that; respond only with the Python code in backticks."""
 if __name__ == "__main__":
     segments = sorted(get_missing_coverage(args.cov_json),
                       key=lambda seg: len(seg.missing_lines), reverse=True)
-    total = sum(len(seg.missing_lines) for seg in segments)
 
     checkpoint_file = Path(CKPT_FILE)
     done = defaultdict(set)
-    done_count = 0
 
     if args.checkpoint:
         try:
             with checkpoint_file.open("r") as f:
                 ckpt = json.load(f)
                 done.update({k:set(v) for k,v in ckpt['done'].items()})
-                done_count = sum(len(s) for s in done.values())
                 total_tokens = ckpt['total_tokens']
         except json.decoder.JSONDecodeError:
             pass
         except FileNotFoundError:
             pass
 
+    seg_count = seg_done_count = 0
     async def work_segment(seg: CodeSegment) -> None:
         await improve_coverage(seg)
 
-        global done, done_count
+        global done, seg_count, seg_done_count
         done[seg.filename].update(seg.missing_lines)
 
         if args.checkpoint:
@@ -411,24 +409,28 @@ if __name__ == "__main__":
                     'total_tokens': total_tokens
                 }, f)
 
-        done_count = sum(len(s) for s in done.values())
-        print(f"{done_count}/{total}  {done_count/total:.0%}")
+        seg_done_count += 1
+        print(f"{seg_done_count}/{seg_count}  {seg_done_count/seg_count:.0%}")
 
     worklist = []
     for seg in segments:
-        if not seg.filename.startswith(args.source_dir) or \
-           seg.missing_lines.issubset(done[seg.filename]):
+        if not seg.filename.startswith(args.source_dir):
             continue
 
         if args.only_file and args.only_file not in seg.filename:
             print(f"skipping {seg}")
             continue
 
-        worklist.append(work_segment(seg))
+        seg_count += 1
+
+        if seg.missing_lines.issubset(done[seg.filename]):
+            seg_done_count += 1
+        else:
+            worklist.append(work_segment(seg))
 
     async def runit():
         await asyncio.gather(*worklist)
 
     asyncio.run(runit())
 
-    print(f"{len(done)}/{total}  {len(done)/total if total>0 else 1:.0%}")
+    print(f"{seg_done_count}/{seg_count}  {seg_done_count/seg_count if seg_count>0 else 1:.0%}")
