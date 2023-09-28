@@ -92,6 +92,9 @@ def new_test_file():
 
 
 def format_ranges(lines: typing.Set[int]) -> str:
+    """Formats sets of line numbers as comma-separated lists, collapsing neighboring lines into ranges
+       for brevity."""
+
     def get_range(lines):
         it = iter(sorted(lines))
 
