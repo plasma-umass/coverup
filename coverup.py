@@ -1,3 +1,4 @@
+import asyncio
 import openai
 import json
 import subprocess
@@ -225,7 +226,7 @@ def get_missing_coverage(jsonfile, base_path = ''):
     return code_segs
 
 
-def do_chat(seg: CodeSegment, completion: dict) -> str:
+async def do_chat(seg: CodeSegment, completion: dict) -> str:
     sleep = 1
     while True:
         try:
@@ -240,7 +241,7 @@ def do_chat(seg: CodeSegment, completion: dict) -> str:
 
                 if not (response := cache.get(key, None)):
                     print("sent request, waiting on GPT...")
-                    response = openai.ChatCompletion.create(**completion)
+                    response = await openai.ChatCompletion.acreate(**completion)
 
                     update_cache(key, response)
                 else:
@@ -249,15 +250,18 @@ def do_chat(seg: CodeSegment, completion: dict) -> str:
 
             else:
                 print("sent request, waiting on GPT...")
-                response = openai.ChatCompletion.create(**completion)
+                response = await openai.ChatCompletion.acreate(**completion)
 
             return response
 
         except (openai.error.ServiceUnavailableError,
                 openai.error.RateLimitError,
                 openai.error.Timeout) as e:
-            print(e)
-            print(f"waiting {sleep}s)")
+            print(f"{seg.identify()}: {e}; waiting {sleep}s")
+            # this affects all requests, so we use `time` rather than `asyncio.sleep`
+            # to stop everybody
+            # FIXME concurrently running tasks may see this limit multiple times, causing
+            # it to wait longer than needed...
             import time
             time.sleep(sleep)
             sleep *= 2
@@ -269,7 +273,7 @@ def do_chat(seg: CodeSegment, completion: dict) -> str:
             return None
 
 
-def improve_coverage(seg: CodeSegment):
+async def improve_coverage(seg: CodeSegment):
     print(f"\n=== {seg.name} ({seg.filename}) ===")
 
     def pl(item, singular, plural = None):
@@ -303,7 +307,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         attempts += 1
 
-        if not (response := do_chat(seg, {'model': args.model, 'messages': messages, 'temperature': 0})):
+        if not (response := await do_chat(seg, {'model': args.model, 'messages': messages, 'temperature': 0})):
             log_write(seg, "giving up")
             print("giving up")
             break
@@ -394,18 +398,12 @@ if __name__ == "__main__":
         except FileNotFoundError:
             pass
 
-    for seg in segments:
-        if not seg.filename.startswith(args.source_dir) or \
-           seg.missing_lines.issubset(done[seg.filename]):
-            continue
+    async def work_segment(seg: CodeSegment) -> None:
+        await improve_coverage(seg)
 
-        if args.only_file and args.only_file not in seg.filename:
-            print(f"skipping {seg}")
-            continue
-
-        improve_coverage(seg)
-
+        global done, done_count
         done[seg.filename].update(seg.missing_lines)
+
         if args.checkpoint:
             with checkpoint_file.open("w") as f:
                 json.dump({
@@ -416,4 +414,21 @@ if __name__ == "__main__":
         done_count = sum(len(s) for s in done.values())
         print(f"{done_count}/{total}  {done_count/total:.0%}")
 
-    print(f"{len(done)}/{total}  {len(done)/total:.0%}")
+    worklist = []
+    for seg in segments:
+        if not seg.filename.startswith(args.source_dir) or \
+           seg.missing_lines.issubset(done[seg.filename]):
+            continue
+
+        if args.only_file and args.only_file not in seg.filename:
+            print(f"skipping {seg}")
+            continue
+
+        worklist.append(work_segment(seg))
+
+    async def runit():
+        await asyncio.gather(*worklist)
+
+    asyncio.run(runit())
+
+    print(f"{len(done)}/{total}  {len(done)/total if total>0 else 1:.0%}")
