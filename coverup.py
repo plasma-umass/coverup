@@ -90,6 +90,7 @@ def new_test_file():
 
         test_seq += 1
 
+
 def format_ranges(lines: typing.Set[int]) -> str:
     def get_range(lines):
         it = iter(sorted(lines))
@@ -108,6 +109,25 @@ def format_ranges(lines: typing.Set[int]) -> str:
             a = n
 
     return ", ".join(get_range(lines))
+
+
+def clean_error(error: str) -> str:
+    """Removes pytest-generated (and possibly other) output not needed by GPT, to cut down on token use."""
+
+    if (match := re.search("=====+ (?:FAILURES|ERRORS) ===+\n" +\
+                           "___+ [^\n]+ _+___\n" +\
+                           "\n?" +\
+                           "(.*)", error,
+                           re.DOTALL)):
+        error = match.group(1)
+
+    if (match := re.search("(.*\n)" +\
+                           "===+ short test summary info ===+", error,
+                           re.DOTALL)):
+        error = match.group(1)
+
+    return error
+
 
 class CodeSegment:
     def __init__(self, filename: Path, name: str, begin: int, end: int,
@@ -376,8 +396,9 @@ Modify it to correct that; respond only with the Python code in backticks.
             print("causes error.")
             messages.append({
                 "role": "user",
-                "content": "Executing the test yields an error:\n\n" + str(e.output, 'UTF-8') + f"""\n\n
-Modify it to correct that; respond only with the Python code in backticks."""
+                "content": "Executing the test yields an error, shown below.\n" +\
+                           "Modify the test to correct it; respond only with the Python code in backticks.\n\n" +\
+                           clean_error(str(e.output, 'UTF-8'))
             })
             log_write(seg, messages[-1]['content'])
 
