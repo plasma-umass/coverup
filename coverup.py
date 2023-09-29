@@ -345,7 +345,10 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             print(e)
             return None
 
+
 class Progress:
+    """Tracks progress, showing a tqdm-based bar."""
+
     def __init__(self, total, initial, tokens):
         import tqdm
         from collections import OrderedDict
@@ -360,29 +363,36 @@ class Progress:
         self.bar.set_postfix(ordered_dict=self.postfix)
 
     def add_tokens(self, tokens: int):
+        """Signals more tokens were used."""
         self.postfix['tokens'] += tokens
         self.bar.set_postfix(ordered_dict=self.postfix)
 
     def add_failing(self):
+        """Signals a failing test."""
         self.postfix['F'] += 1
         self.bar.set_postfix(ordered_dict=self.postfix)
 
     def add_useless(self):
+        """Signals an useless test (that doesn't increase coverage)."""
         self.postfix['U'] += 1
         self.bar.set_postfix(ordered_dict=self.postfix)
 
     def add_good(self):
+        """Signals a 'good', useful test was found."""
         self.postfix['G'] += 1
         self.bar.set_postfix(ordered_dict=self.postfix)
 
     def update(self):
+        """Signals an item completed."""
         self.bar.update()
 
-    def close(self):
-        self.bar.close()
-
     def get_tokens(self):
+        """Returns the total number of tokens used."""
         return self.postfix['tokens']
+
+    def close(self):
+        """Closes the underlying tqdm bar."""
+        self.bar.close()
 
 
 progress = None
@@ -495,6 +505,11 @@ if __name__ == "__main__":
         rate_limit = AsyncLimiter(args.rate_limit, 60)
 
     cache = load_cache() if args.cache else None
+
+    if 'OPENAI_API_KEY' not in os.environ:
+        print("Please place your OpenAI key in an environment variable named OPENAI_API_KEY and try again.")
+        import sys
+        sys.exit(1)
 
     openai.key=os.environ['OPENAI_API_KEY']
     if 'OPENAI_ORGANIZATION' in os.environ:
