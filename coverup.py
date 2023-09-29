@@ -3,7 +3,6 @@ import openai
 import json
 import subprocess
 import os
-import ast
 from collections import defaultdict
 from pathlib import Path
 import typing
@@ -11,6 +10,7 @@ import re
 
 
 PREFIX = 'coverup'
+MAX_SLEEP=64
 
 CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
@@ -43,6 +43,9 @@ def parse_args():
 
     ap.add_argument('--only-file', type=str,
                     help='only process segments for the given source file')
+
+    ap.add_argument('--rate-limit', type=int, default=40000,
+                    help='max. tokens/minute to send in prompts; 0 means no limit')
 
     ap.add_argument('--cache', default=False,
                     action=argparse.BooleanOptionalAction,
@@ -78,7 +81,7 @@ def update_cache(key: str, response: dict):
 
 test_seq = 1
 def new_test_file():
-    global test_seq
+    global test_seq, args
 
     while True:
         p = args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
@@ -171,13 +174,19 @@ class CodeSegment:
         return format_ranges(self.missing_lines)
 
 
+log_file = None
 def log_write(seg: CodeSegment, m: str) -> None:
-    log.write(f"---- {seg.identify()} ----\n{m}\n")
+    global log_file
+    if not log_file:
+        log_file = open(PREFIX + "-log", "w+", buffering=1)    # 1 = line buffered
+
+    log_file.write(f"---- {seg.identify()} ----\n{m}\n")
 
 
 def measure_coverage(seg: CodeSegment, test: str):
     import sys
     import tempfile
+    global args
 
     with tempfile.NamedTemporaryFile(prefix=PREFIX + "_tmp_", suffix='.py',
                                      dir=str(args.tests_dir), mode="w") as t:
@@ -199,6 +208,9 @@ def get_missing_coverage(jsonfile, base_path = ''):
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
     """
+    import ast
+    global args
+
     with open(jsonfile, "r") as f:
         cov = json.load(f)
 
@@ -255,7 +267,28 @@ def get_missing_coverage(jsonfile, base_path = ''):
     return code_segs
 
 
+token_encoding = None
+def count_tokens(completion: dict):
+    """Counts the number of tokens in a chat completion request."""
+
+    import tiktoken
+    global args
+
+    global token_encoding
+    if not token_encoding:
+        token_encoding = tiktoken.encoding_for_model(args.model)
+
+    count = 0
+    for m in completion['messages']:
+        count += len(token_encoding.encode(m['content']))
+
+    return count
+
+
+rate_limit = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
+    global rate_limit
+
     sleep = 1
     while True:
         try:
@@ -269,6 +302,9 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                 key = re.sub(f"{PREFIX}_tmp_.+?\\.py\\b", f"{PREFIX}_tmp.py", key)
 
                 if not (response := cache.get(key, None)):
+                    if rate_limit:
+                        await rate_limit.acquire(count_tokens(completion))
+
                     print("sent request, waiting on GPT...")
                     response = await openai.ChatCompletion.acreate(**completion)
 
@@ -278,6 +314,9 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                     response['cached'] = True
 
             else:
+                if rate_limit:
+                    await rate_limit.acquire(count_tokens(completion))
+
                 print("sent request, waiting on GPT...")
                 response = await openai.ChatCompletion.acreate(**completion)
 
@@ -286,14 +325,11 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
         except (openai.error.ServiceUnavailableError,
                 openai.error.RateLimitError,
                 openai.error.Timeout) as e:
-            print(f"{seg.identify()}: {e}; waiting {sleep}s")
-            # this affects all requests, so we use `time` rather than `asyncio.sleep`
-            # to stop everybody
-            # FIXME concurrently running tasks may see this limit multiple times, causing
-            # it to wait longer than needed...
-            import time
-            time.sleep(sleep)
-            sleep *= 2
+            import random
+            sleep = min(sleep*2, MAX_SLEEP)
+            sleep_time = random.uniform(sleep/2, sleep)
+            print(f"{seg.identify()}: {str(e)}; waiting {sleep_time:.1f}s")
+            await asyncio.sleep(sleep_time)
 
         except openai.error.InvalidRequestError as e:
             # usually "maximum context length" XXX check for this?
@@ -303,6 +339,8 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
 
 async def improve_coverage(seg: CodeSegment):
+    global args
+
     print(f"\n=== {seg.name} ({seg.filename}) ===")
 
     def pl(item, singular, plural = None):
@@ -410,7 +448,10 @@ Modify it to correct that; respond only with the Python code in backticks.
 if __name__ == "__main__":
     args = parse_args()
 
-    log = open(PREFIX + "-log", "w", buffering=1)    # 1 = line buffered
+    if args.rate_limit:
+        from aiolimiter import AsyncLimiter
+        rate_limit = AsyncLimiter(args.rate_limit, 60)
+
     cache = load_cache() if args.cache else None
 
     openai.key=os.environ['OPENAI_API_KEY']
