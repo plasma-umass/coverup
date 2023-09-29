@@ -316,19 +316,16 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                     if rate_limit:
                         await rate_limit.acquire(count_tokens(completion))
 
-                    print("sent request, waiting on GPT...")
                     response = await openai.ChatCompletion.acreate(**completion)
 
                     update_cache(key, response)
                 else:
-                    print("using cached response")
                     response['cached'] = True
 
             else:
                 if rate_limit:
                     await rate_limit.acquire(count_tokens(completion))
 
-                print("sent request, waiting on GPT...")
                 response = await openai.ChatCompletion.acreate(**completion)
 
             return response
@@ -339,22 +336,59 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             import random
             sleep = min(sleep*2, MAX_SLEEP)
             sleep_time = random.uniform(sleep/2, sleep)
-            print(f"{seg.identify()}: {str(e)}; waiting {sleep_time:.1f}s")
+            print(f"{str(e)}; waiting {sleep_time:.1f}s")
             await asyncio.sleep(sleep_time)
 
         except openai.error.InvalidRequestError as e:
             # usually "maximum context length" XXX check for this?
             log_write(seg, f"Received {e}")
-            print(f"Received {e}")
+            print(e)
             return None
 
+class Progress:
+    def __init__(self, total, initial, tokens):
+        import tqdm
+        from collections import OrderedDict
 
+        self.postfix = OrderedDict()
+        self.postfix['tokens'] = tokens
+        self.postfix['G'] = 0
+        self.postfix['F'] = 0
+        self.postfix['U'] = 0
+
+        self.bar = tqdm.tqdm(total=total, initial=initial)
+        self.bar.set_postfix(ordered_dict=self.postfix)
+
+    def add_tokens(self, tokens: int):
+        self.postfix['tokens'] += tokens
+        self.bar.set_postfix(ordered_dict=self.postfix)
+
+    def add_failing(self):
+        self.postfix['F'] += 1
+        self.bar.set_postfix(ordered_dict=self.postfix)
+
+    def add_useless(self):
+        self.postfix['U'] += 1
+        self.bar.set_postfix(ordered_dict=self.postfix)
+
+    def add_good(self):
+        self.postfix['G'] += 1
+        self.bar.set_postfix(ordered_dict=self.postfix)
+
+    def update(self):
+        self.bar.update()
+
+    def close(self):
+        self.bar.close()
+
+    def get_tokens(self):
+        return self.postfix['tokens']
+
+
+progress = None
 async def improve_coverage(seg: CodeSegment):
     """Works to improve coverage for a code segment."""
-
-    global args
-
-    print(f"\n=== {seg.name} ({seg.filename}) ===")
+    global args, progress
 
     def pl(item, singular, plural = None):
         if len(item) <= 1:
@@ -382,25 +416,21 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
     while True:
         if (attempts > 5):
             log_write(seg, "Too many attempts, giving up")
-            print("giving up")
             break
 
         attempts += 1
 
         if not (response := await do_chat(seg, {'model': args.model, 'messages': messages, 'temperature': 0})):
             log_write(seg, "giving up")
-            print("giving up")
             break
 
         response_message = response["choices"][0]["message"]
         log_write(seg, response_message['content'])
 
         if 'cached' not in response:
-            global total_tokens
             tokens = response['usage']['total_tokens']
-            print(f"received response; usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens")
-            log_write(seg, f"usage: {total_tokens}+{tokens} = {total_tokens+tokens} tokens")
-            total_tokens += tokens
+            progress.add_tokens(tokens)
+            log_write(seg, f"usage: {tokens} tokens")
 
         messages.append(response_message)
 
@@ -411,7 +441,6 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 last_test = m.group(1)
         else:
             log_write(seg, "No Python code in GPT response, giving up")
-            print("No Python code in GPT response, giving up")
             break
 
         try:
@@ -420,16 +449,16 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             new_covered = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
             now_missing = seg.missing_lines - new_covered
 
-            print(f"Originally missing: {list(seg.missing_lines)}")
-            print(f"Still missing:      {list(now_missing)}")
+#            print(f"Originally missing: {list(seg.missing_lines)}")
+#            print(f"Still missing:      {list(now_missing)}")
 
             # XXX insist on len(now_missing) == 0 while saving best test?
             if len(now_missing) < len(seg.missing_lines):
                 # good 'nough
                 new_test = new_test_file()
-                print(f"Saved as {new_test}")
                 log_write(seg, f"Saved as {new_test}\n")
                 new_test.write_text(last_test)
+                progress.add_good()
                 break
 
             messages.append({
@@ -441,14 +470,14 @@ Modify it to correct that; respond only with the Python code in backticks.
 """
             })
             log_write(seg, messages[-1]['content'])
+            progress.add_useless()
 
         except subprocess.TimeoutExpired:
             log_write(seg, "measure_coverage timed out, giving up")
-            print("measure_coverage timed out, giving up")
             break
 
         except subprocess.CalledProcessError as e:
-            print("causes error.")
+            progress.add_failing()
             messages.append({
                 "role": "user",
                 "content": "Executing the test yields an error, shown below.\n" +\
@@ -490,24 +519,22 @@ if __name__ == "__main__":
         except FileNotFoundError:
             pass
 
-    seg_count = seg_done_count = 0
     async def work_segment(seg: CodeSegment) -> None:
         await improve_coverage(seg)
 
-        global done, seg_count, seg_done_count
         done[seg.filename].update(seg.missing_lines)
 
         if args.checkpoint:
             with checkpoint_file.open("w") as f:
                 json.dump({
                     'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
-                    'total_tokens': total_tokens
+                    'total_tokens': progress.get_tokens()
                 }, f)
 
-        seg_done_count += 1
-        print(f"{seg_done_count}/{seg_count}  {seg_done_count/seg_count:.0%}")
+        progress.update()
 
     worklist = []
+    seg_done_count = 0
     for seg in segments:
         if not seg.filename.startswith(args.source_dir):
             continue
@@ -515,8 +542,6 @@ if __name__ == "__main__":
         if args.only_file and args.only_file not in seg.filename:
             print(f"skipping {seg}")
             continue
-
-        seg_count += 1
 
         if seg.missing_lines.issubset(done[seg.filename]):
             seg_done_count += 1
@@ -526,6 +551,7 @@ if __name__ == "__main__":
     async def runit():
         await asyncio.gather(*worklist)
 
+    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, tokens=total_tokens)
     asyncio.run(runit())
 
-    print(f"{seg_done_count}/{seg_count}  {seg_done_count/seg_count if seg_count>0 else 1:.0%}")
+    progress.close()

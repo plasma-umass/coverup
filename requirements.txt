@@ -2,3 +2,4 @@ asyncio
 openai
 tiktoken
 aiolimiter
+tqdm
