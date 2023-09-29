@@ -55,6 +55,7 @@ def parse_args():
 
 
 def load_cache():
+    """Loads CoverUp's response cache."""
     cache = dict()
     try:
         with CACHE_FILE.open("r") as f:
@@ -70,6 +71,7 @@ def load_cache():
 
 
 def update_cache(key: str, response: dict):
+    """Updates CoverUp's response cache."""
     global cache
     cache[key] = response
 
@@ -81,6 +83,8 @@ def update_cache(key: str, response: dict):
 
 test_seq = 1
 def new_test_file():
+    """Creates a new test file, returning its Path."""
+
     global test_seq, args
 
     while True:
@@ -137,6 +141,8 @@ def clean_error(error: str) -> str:
 
 
 class CodeSegment:
+    """Represents a section of code that is missing coverage."""
+
     def __init__(self, filename: Path, name: str, begin: int, end: int,
                  missing_lines: typing.Set[int],
                  context: typing.List[typing.Tuple[int, int]]):
@@ -176,6 +182,8 @@ class CodeSegment:
 
 log_file = None
 def log_write(seg: CodeSegment, m: str) -> None:
+    """Writes to the log file, opening it first if necessary."""
+
     global log_file
     if not log_file:
         log_file = open(PREFIX + "-log", "w+", buffering=1)    # 1 = line buffered
@@ -184,6 +192,7 @@ def log_write(seg: CodeSegment, m: str) -> None:
 
 
 def measure_coverage(seg: CodeSegment, test: str):
+    """Runs a given test and returns the coverage obtained."""
     import sys
     import tempfile
     global args
@@ -287,6 +296,8 @@ def count_tokens(completion: dict):
 
 rate_limit = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
+    """Sends a GPT chat request, handling common failures and returning the response."""
+
     global rate_limit
 
     sleep = 1
@@ -339,6 +350,8 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
 
 async def improve_coverage(seg: CodeSegment):
+    """Works to improve coverage for a code segment."""
+
     global args
 
     print(f"\n=== {seg.name} ({seg.filename}) ===")
