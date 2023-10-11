@@ -5,7 +5,7 @@ import subprocess
 import os
 from collections import defaultdict
 from pathlib import Path
-import typing
+import typing as T
 import re
 
 
@@ -51,6 +51,9 @@ def parse_args():
                     action=argparse.BooleanOptionalAction,
                     help=f'whether to cache model responses')
 
+    ap.add_argument('--show-details', default=False,
+                    action=argparse.BooleanOptionalAction,
+                    help=f'show details of lines/branches after each response')
     return ap.parse_args()
 
 
@@ -98,7 +101,7 @@ def new_test_file():
         test_seq += 1
 
 
-def format_ranges(lines: typing.Set[int]) -> str:
+def format_ranges(lines: T.Set[int]) -> str:
     """Formats sets of line numbers as comma-separated lists, collapsing neighboring lines into ranges
        for brevity."""
 
@@ -119,6 +122,26 @@ def format_ranges(lines: typing.Set[int]) -> str:
             a = n
 
     return ", ".join(get_range(lines))
+
+
+def lines_branches_do(lines: T.Set[int], branches: T.Set[T.Tuple[int, int]]) -> str:
+    s = ''
+    if lines:
+        s += f"line{'s' if len(lines)>1 else ''} {format_ranges(lines)}"
+
+        if branches:
+            s += " and "
+
+    def get_branches():
+        for br in sorted(branches):
+            yield f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
+
+    if branches:
+        s += f"branch{'es' if len(branches)>1 else ''} "
+        s += ", ".join(get_branches())
+
+    s += " does" if len(lines)+len(branches) == 1 else " do"
+    return s
 
 
 def clean_error(error: str) -> str:
@@ -144,13 +167,17 @@ class CodeSegment:
     """Represents a section of code that is missing coverage."""
 
     def __init__(self, filename: Path, name: str, begin: int, end: int,
-                 missing_lines: typing.Set[int],
-                 context: typing.List[typing.Tuple[int, int]]):
+                 missing_lines: T.Set[int],
+                 executed_lines: T.Set[int],
+                 missing_branches: T.Set[T.Tuple[int, int]],
+                 context: T.List[T.Tuple[int, int]]):
         self.filename = filename
         self.name = name
         self.begin = begin
         self.end = end
         self.missing_lines = missing_lines
+        self.executed_lines = executed_lines    # unnecessary for now, but can be used trim ranges
+        self.missing_branches = missing_branches
         self.context = context
 
 
@@ -176,8 +203,11 @@ class CodeSegment:
         return ''.join(excerpt)
 
 
-    def get_missing(self):
-        return format_ranges(self.missing_lines)
+    def lines_branches_missing_do(self):
+        return lines_branches_do(self.missing_lines, self.missing_branches)
+
+    def missing_count(self) -> int:
+        return len(self.missing_lines)+len(self.missing_branches)
 
 
 log_file = None
@@ -204,7 +234,7 @@ def measure_coverage(seg: CodeSegment, test: str):
 
         with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
             # -qq to cut down on tokens
-            p = subprocess.run((f"{sys.executable} -m slipcover --json --out {j.name} " +
+            p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
                                 f"-m pytest -qq {t.name}").split(),
                                check=True, capture_output=True, timeout=60)
             log_write(seg, str(p.stdout, 'UTF-8'))
@@ -270,8 +300,16 @@ def get_missing_coverage(jsonfile, base_path = ''):
         if code_this_file:
             for it in code_this_file:
                 name, begin, end = it
-                missing = code_this_file[it]
-                code_segs.append(CodeSegment(fname, name, begin, end, missing, ctx_this_file[it]))
+                line_range_set = {*range(begin, end)}
+                missing_lines = code_this_file[it]
+                executed_lines = set(cov['files'][fname]['executed_lines']).intersection(line_range_set)
+                missing_branches = {tuple(b) for b in cov['files'][fname]['missing_branches'] \
+                                    if b[0] in line_range_set}
+                code_segs.append(CodeSegment(fname, name, begin, end,
+                                             missing_lines=missing_lines,
+                                             executed_lines=executed_lines,
+                                             missing_branches=missing_branches,
+                                             context=ctx_this_file[it]))
 
     return code_segs
 
@@ -407,9 +445,9 @@ async def improve_coverage(seg: CodeSegment):
 
     messages = [{"role": "user",
                  "content": f"""
-The code below, extracted from {seg.filename}, does not achieve full line coverage:
-when tested, {pl(seg.missing_lines,'line')} {seg.get_missing()} {pl(seg.missing_lines,'does','do')} not execute.
-Create a new pytest test function that executes these missing lines, always making
+The code below, extracted from {seg.filename}, does not achieve full coverage:
+when tested, {seg.lines_branches_missing_do()} not execute.
+Create a new pytest test function that executes these missing lines/branches, always making
 sure that the new test is correct and indeed improves coverage.  Always send entire Python
 test scripts when proposing a new test or correcting one you previously proposed.
 Respond ONLY with the Python code enclosed in backticks, without any explanation.
@@ -440,7 +478,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         if 'cached' not in response:
             tokens = response['usage']['total_tokens']
             progress.add_tokens(tokens)
-            log_write(seg, f"usage: {tokens} tokens")
+            log_write(seg, f"usage: {tokens} tokens, {progress.get_tokens()} total")
 
         messages.append(response_message)
 
@@ -456,26 +494,33 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         try:
             result = measure_coverage(seg, last_test)
 
-            new_covered = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
-            now_missing = seg.missing_lines - new_covered
+            new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
+            new_branches = set(tuple(b) for b in result[seg.filename]['executed_branches']) \
+                           if seg.filename in result else set()
+            now_missing_lines = seg.missing_lines - new_lines
+            now_missing_branches = seg.missing_branches - new_branches
 
-#            print(f"Originally missing: {list(seg.missing_lines)}")
-#            print(f"Still missing:      {list(now_missing)}")
+            if args.show_details:
+                print(seg.identify())
+                print(f"Originally missing: {list(seg.missing_lines)}")
+                print(f"                    {list(seg.missing_branches)}")
+                print(f"Still missing:      {list(now_missing_lines)}")
+                print(f"                    {list(now_missing_branches)}")
 
             # XXX insist on len(now_missing) == 0 while saving best test?
-            if len(now_missing) < len(seg.missing_lines):
+#            if len(now_missing_lines)+len(now_missing_branches) == 0:
+            if len(now_missing_lines)+len(now_missing_branches) < seg.missing_count():
                 # good 'nough
                 new_test = new_test_file()
-                log_write(seg, f"Saved as {new_test}\n")
                 new_test.write_text(last_test)
+                log_write(seg, f"Saved as {new_test}\n")
                 progress.add_good()
                 break
 
             messages.append({
                 "role": "user",
                 "content": f"""
-This test still lacks coverage: {pl(now_missing, 'line')}
-{", ".join(map(str, now_missing))} still {pl(now_missing, 'does', 'do')} not execute.
+This test still lacks coverage: {lines_branches_do(now_missing_lines, now_missing_branches)} not execute.
 Modify it to correct that; respond only with the Python code in backticks.
 """
             })
@@ -517,17 +562,18 @@ if __name__ == "__main__":
 
     total_tokens = 0
 
-    segments = sorted(get_missing_coverage(args.cov_json),
-                      key=lambda seg: len(seg.missing_lines), reverse=True)
+    segments = sorted(get_missing_coverage(args.cov_json), key=lambda seg: seg.missing_count(), reverse=True)
 
     checkpoint_file = Path(CKPT_FILE)
-    done = defaultdict(set)
+    done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
 
     if args.checkpoint:
         try:
             with checkpoint_file.open("r") as f:
                 ckpt = json.load(f)
-                done.update({k:set(v) for k,v in ckpt['done'].items()})
+                assert ckpt['version'] == 1
+                for filename, done_list in ckpt['done'].items():
+                    done[filename] = set(tuple(d) for d in done_list)
                 total_tokens = ckpt['total_tokens']
         except json.decoder.JSONDecodeError:
             pass
@@ -537,11 +583,12 @@ if __name__ == "__main__":
     async def work_segment(seg: CodeSegment) -> None:
         await improve_coverage(seg)
 
-        done[seg.filename].update(seg.missing_lines)
+        done[seg.filename].add((seg.begin, seg.end))
 
         if args.checkpoint:
             with checkpoint_file.open("w") as f:
                 json.dump({
+                    'version': 1,
                     'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
                     'total_tokens': progress.get_tokens()
                 }, f)
@@ -555,10 +602,9 @@ if __name__ == "__main__":
             continue
 
         if args.only_file and args.only_file not in seg.filename:
-            print(f"skipping {seg}")
             continue
 
-        if seg.missing_lines.issubset(done[seg.filename]):
+        if (seg.begin, seg.end) in done[seg.filename]:
             seg_done_count += 1
         else:
             worklist.append(work_segment(seg))

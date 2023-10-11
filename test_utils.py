@@ -15,6 +15,16 @@ def test_format_ranges_is_sorted(a, b):
     assert f"{a}-{b}" == coverup.format_ranges({i for i in range(a,b+1)})
 
 
+def test_lines_branches_do():
+    assert "line 123 does" == coverup.lines_branches_do({123}, {})
+    assert "lines 123-125, 199 do" == coverup.lines_branches_do({123,124,125,199}, {})
+    assert "branch 1->5 does" == coverup.lines_branches_do({}, {(1,5)})
+    assert "branches 1->2, 1->5 do" == coverup.lines_branches_do({}, {(1,5),(1,2)})
+    assert "line 123 and branches 1->exit, 1->2 do" == coverup.lines_branches_do({123}, {(1,2),(1,0)})
+    assert "lines 123-124 and branch 1->exit do" == coverup.lines_branches_do({123, 124}, {(1,0)})
+    assert "lines 123-125 and branches 1->exit, 1->2 do" == coverup.lines_branches_do({123,124,125}, {(1,2),(1,0)})
+
+
 def test_clean_error_failure():
     error = """
 F                                                                        [100%]
