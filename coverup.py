@@ -10,8 +10,6 @@ import re
 
 
 PREFIX = 'coverup'
-MAX_SLEEP=64
-
 CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
 
@@ -37,6 +35,7 @@ MODEL_COST = {
         'prompt_tokens': 0.003, 'completion_tokens': 0.004
     },
 }
+
 
 def parse_args():
     import argparse
@@ -69,6 +68,9 @@ def parse_args():
 
     ap.add_argument('--rate-limit', type=int, default=40000,
                     help='max. tokens/minute to send in prompts; 0 means no limit')
+
+    ap.add_argument('--max-backoff', type=int, default=64,
+                    help='max. number of seconds for backoff interval')
 
     ap.add_argument('--cache', default=False,
                     action=argparse.BooleanOptionalAction,
@@ -362,6 +364,7 @@ def compute_cost(usage: dict, model: str) -> float:
 
     return None
 
+
 rate_limit = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
     """Sends a GPT chat request, handling common failures and returning the response."""
@@ -402,7 +405,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                 openai.error.RateLimitError,
                 openai.error.Timeout) as e:
             import random
-            sleep = min(sleep*2, MAX_SLEEP)
+            sleep = min(sleep*2, args.max_backoff)
             sleep_time = random.uniform(sleep/2, sleep)
             print(f"{str(e)}; waiting {sleep_time:.1f}s")
             await asyncio.sleep(sleep_time)
