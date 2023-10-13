@@ -1,4 +1,5 @@
 import coverup
+import pytest
 from hypothesis import given
 import hypothesis.strategies as st
 
@@ -103,3 +104,17 @@ tests/coverup_tmp_dkd55qhh.py:4: in <module>
     from flask.json import JSONProvider
 E   ImportError: cannot import name 'JSONProvider' from 'flask.json' (/Users/juan/tmp/flask/src/flask/json/__init__.py)
 """.lstrip("\n")
+
+
+def test_compute_cost():
+    assert pytest.approx(2.10, abs=.1) == \
+           coverup.compute_cost({'prompt_tokens':60625, 'completion_tokens':4731}, 'gpt-4')
+
+    assert pytest.approx(0.11, abs=.1) == \
+           coverup.compute_cost({'prompt_tokens':60625, 'completion_tokens':4731}, 'gpt-3.5')
+
+    # unknown model
+    assert None == coverup.compute_cost({'prompt_tokens':60625, 'completion_tokens':4731}, 'unknown')
+
+    # unknown token types
+    assert None  == coverup.compute_cost({'blue_tokens':60625, 'red_tokens':4731}, 'gpt-4')

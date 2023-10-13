@@ -15,6 +15,29 @@ MAX_SLEEP=64
 CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
 
+MODEL_COST = {
+    # cost by token type, for 1K tokens
+    # retrieved from https://openai.com/pricing#language-models on 2023-10-13
+    'gpt-4': {
+        'prompt_tokens': 0.03, 'completion_tokens': 0.06
+    },
+    'gpt-4-32k': {
+        'prompt_tokens': 0.06, 'completion_tokens': 0.12
+    },
+    'gpt-3.5': {
+        'prompt_tokens': 0.0015, 'completion_tokens': 0.002
+    },
+    'gpt-3.5-turbo': {
+        'prompt_tokens': 0.0015, 'completion_tokens': 0.002
+    },
+    'gpt-3.5-turbo-16k': {
+        'prompt_tokens': 0.003, 'completion_tokens': 0.004
+    },
+    'gpt-3.5-16k': {
+        'prompt_tokens': 0.003, 'completion_tokens': 0.004
+    },
+}
+
 def parse_args():
     import argparse
     ap = argparse.ArgumentParser(prog='CoverUp',
@@ -332,6 +355,13 @@ def count_tokens(completion: dict):
     return count
 
 
+def compute_cost(usage: dict, model: str) -> float:
+    from math import ceil
+    if model in MODEL_COST and set(usage.keys()).issubset(MODEL_COST[model].keys()):
+        return sum(MODEL_COST[model][token_type]*ceil(count/1024) for token_type, count in usage.items())
+
+    return None
+
 rate_limit = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
     """Sends a GPT chat request, handling common failures and returning the response."""
@@ -387,12 +417,13 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 class Progress:
     """Tracks progress, showing a tqdm-based bar."""
 
-    def __init__(self, total, initial, tokens):
+    def __init__(self, total, initial, usage):
         import tqdm
         from collections import OrderedDict
 
         self.postfix = OrderedDict()
-        self.postfix['tokens'] = tokens
+        self.usage = {'prompt_tokens': 0, 'completion_tokens': 0}
+        self.postfix['usage'] = ''
         self.postfix['G'] = 0
         self.postfix['F'] = 0
         self.postfix['U'] = 0
@@ -400,9 +431,15 @@ class Progress:
         self.bar = tqdm.tqdm(total=total, initial=initial)
         self.bar.set_postfix(ordered_dict=self.postfix)
 
-    def add_tokens(self, tokens: int):
+        if usage: self.add_usage(usage)
+
+    def add_usage(self, usage: dict):
         """Signals more tokens were used."""
-        self.postfix['tokens'] += tokens
+        for k in self.usage:
+            self.usage[k] += usage[k]
+        cost = compute_cost(self.usage, args.model)
+        self.postfix['usage'] = f'{self.usage["prompt_tokens"]}+{self.usage["completion_tokens"]}' + \
+                                (f' (~${cost:.02f})' if cost is not None else '')
         self.bar.set_postfix(ordered_dict=self.postfix)
 
     def add_failing(self):
@@ -423,10 +460,6 @@ class Progress:
     def update(self):
         """Signals an item completed."""
         self.bar.update()
-
-    def get_tokens(self):
-        """Returns the total number of tokens used."""
-        return self.postfix['tokens']
 
     def close(self):
         """Closes the underlying tqdm bar."""
@@ -476,9 +509,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         log_write(seg, response_message['content'])
 
         if 'cached' not in response:
-            tokens = response['usage']['total_tokens']
-            progress.add_tokens(tokens)
-            log_write(seg, f"usage: {tokens} tokens, {progress.get_tokens()} total")
+            progress.add_usage(response['usage'])
+            log_write(seg, f"total usage: {progress.usage}")
 
         messages.append(response_message)
 
@@ -560,13 +592,12 @@ if __name__ == "__main__":
     if 'OPENAI_ORGANIZATION' in os.environ:
         openai.organization=os.environ['OPENAI_ORGANIZATION']
 
-    total_tokens = 0
-
     segments = sorted(get_missing_coverage(args.cov_json), key=lambda seg: seg.missing_count(), reverse=True)
 
     checkpoint_file = Path(CKPT_FILE)
     done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
 
+    usage = None
     if args.checkpoint:
         try:
             with checkpoint_file.open("r") as f:
@@ -574,7 +605,7 @@ if __name__ == "__main__":
                 assert ckpt['version'] == 1
                 for filename, done_list in ckpt['done'].items():
                     done[filename] = set(tuple(d) for d in done_list)
-                total_tokens = ckpt['total_tokens']
+                usage = ckpt['usage']
         except json.decoder.JSONDecodeError:
             pass
         except FileNotFoundError:
@@ -590,7 +621,7 @@ if __name__ == "__main__":
                 json.dump({
                     'version': 1,
                     'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
-                    'total_tokens': progress.get_tokens()
+                    'usage': progress.usage
                 }, f)
 
         progress.update()
@@ -612,7 +643,7 @@ if __name__ == "__main__":
     async def runit():
         await asyncio.gather(*worklist)
 
-    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, tokens=total_tokens)
+    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, usage=usage)
     asyncio.run(runit())
 
     progress.close()
