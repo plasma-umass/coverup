@@ -25,13 +25,13 @@ MODEL_COST = {
     'gpt-3.5': {
         'prompt_tokens': 0.0015, 'completion_tokens': 0.002
     },
+    'gpt-3.5-16k': {
+        'prompt_tokens': 0.003, 'completion_tokens': 0.004
+    },
     'gpt-3.5-turbo': {
         'prompt_tokens': 0.0015, 'completion_tokens': 0.002
     },
     'gpt-3.5-turbo-16k': {
-        'prompt_tokens': 0.003, 'completion_tokens': 0.004
-    },
-    'gpt-3.5-16k': {
         'prompt_tokens': 0.003, 'completion_tokens': 0.004
     },
 }
