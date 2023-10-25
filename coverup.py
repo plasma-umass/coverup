@@ -126,7 +126,7 @@ def new_test_file():
         test_seq += 1
 
 
-def format_ranges(lines: T.Set[int]) -> str:
+def format_ranges(lines: T.Set[int], negative: T.Set[int]) -> str:
     """Formats sets of line numbers as comma-separated lists, collapsing neighboring lines into ranges
        for brevity."""
 
@@ -136,7 +136,7 @@ def format_ranges(lines: T.Set[int]) -> str:
         a = next(it, None)
         while a is not None:
             b = a
-            while (n := next(it, None)) == b+1:
+            while (n := next(it, None)) is not None and not (set(range(b+1,n+1)) & negative):
                 b = n
 
             if a == b:
@@ -149,10 +149,10 @@ def format_ranges(lines: T.Set[int]) -> str:
     return ", ".join(get_range(lines))
 
 
-def lines_branches_do(lines: T.Set[int], branches: T.Set[T.Tuple[int, int]]) -> str:
+def lines_branches_do(lines: T.Set[int], neg_lines: T.Set[int], branches: T.Set[T.Tuple[int, int]]) -> str:
     s = ''
     if lines:
-        s += f"line{'s' if len(lines)>1 else ''} {format_ranges(lines)}"
+        s += f"line{'s' if len(lines)>1 else ''} {format_ranges(lines, neg_lines)}"
 
         if branches:
             s += " and "
@@ -201,7 +201,7 @@ class CodeSegment:
         self.begin = begin
         self.end = end
         self.missing_lines = missing_lines
-        self.executed_lines = executed_lines    # unnecessary for now, but can be used trim ranges
+        self.executed_lines = executed_lines
         self.missing_branches = missing_branches
         self.context = context
 
@@ -229,7 +229,7 @@ class CodeSegment:
 
 
     def lines_branches_missing_do(self):
-        return lines_branches_do(self.missing_lines, self.missing_branches)
+        return lines_branches_do(self.missing_lines, self.executed_lines, self.missing_branches)
 
     def missing_count(self) -> int:
         return len(self.missing_lines)+len(self.missing_branches)
@@ -328,8 +328,11 @@ def get_missing_coverage(jsonfile, base_path = ''):
                 line_range_set = {*range(begin, end)}
                 missing_lines = code_this_file[it]
                 executed_lines = set(cov['files'][fname]['executed_lines']).intersection(line_range_set)
-                missing_branches = {tuple(b) for b in cov['files'][fname]['missing_branches'] \
-                                    if b[0] in line_range_set}
+                if 'missing_branches' in cov['files'][fname]:
+                    missing_branches = {tuple(b) for b in cov['files'][fname]['missing_branches'] \
+                                        if b[0] in line_range_set}
+                else:
+                    missing_branches = set()
                 code_segs.append(CodeSegment(fname, name, begin, end,
                                              missing_lines=missing_lines,
                                              executed_lines=executed_lines,
@@ -555,7 +558,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             messages.append({
                 "role": "user",
                 "content": f"""
-This test still lacks coverage: {lines_branches_do(now_missing_lines, now_missing_branches)} not execute.
+This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
 Modify it to correct that; respond only with the Python code in backticks.
 """
             })

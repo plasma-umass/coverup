@@ -5,25 +5,26 @@ import hypothesis.strategies as st
 
 
 def test_format_ranges():
-    assert "" == coverup.format_ranges({})
-    assert "1-3" == coverup.format_ranges({1,2,3})
-    assert "1-2, 4-6, 8" == coverup.format_ranges({1,2,4,5,6,8})
+    assert "" == coverup.format_ranges(set(), set())
+    assert "1-5" == coverup.format_ranges({1,2,3,5}, set())
+    assert "1-3, 5" == coverup.format_ranges({1,2,3,5}, {4})
+    assert "1-6, 10-11, 30" == coverup.format_ranges({1,2,4,5,6,10,11,30}, {8,14,15,16,17})
 
 
 @given(st.integers(0, 10000), st.integers(1, 10000))
 def test_format_ranges_is_sorted(a, b):
     b = a+b
-    assert f"{a}-{b}" == coverup.format_ranges({i for i in range(a,b+1)})
+    assert f"{a}-{b}" == coverup.format_ranges({i for i in range(a,b+1)}, set())
 
 
 def test_lines_branches_do():
-    assert "line 123 does" == coverup.lines_branches_do({123}, {})
-    assert "lines 123-125, 199 do" == coverup.lines_branches_do({123,124,125,199}, {})
-    assert "branch 1->5 does" == coverup.lines_branches_do({}, {(1,5)})
-    assert "branches 1->2, 1->5 do" == coverup.lines_branches_do({}, {(1,5),(1,2)})
-    assert "line 123 and branches 1->exit, 1->2 do" == coverup.lines_branches_do({123}, {(1,2),(1,0)})
-    assert "lines 123-124 and branch 1->exit do" == coverup.lines_branches_do({123, 124}, {(1,0)})
-    assert "lines 123-125 and branches 1->exit, 1->2 do" == coverup.lines_branches_do({123,124,125}, {(1,2),(1,0)})
+    assert "line 123 does" == coverup.lines_branches_do({123}, set(), set())
+    assert "lines 123-125, 199 do" == coverup.lines_branches_do({123,124,125,199}, {128}, set())
+    assert "branch 1->5 does" == coverup.lines_branches_do(set(), set(), {(1,5)})
+    assert "branches 1->2, 1->5 do" == coverup.lines_branches_do(set(), set(), {(1,5),(1,2)})
+    assert "line 123 and branches 1->exit, 1->2 do" == coverup.lines_branches_do({123}, set(), {(1,2),(1,0)})
+    assert "lines 123-124 and branch 1->exit do" == coverup.lines_branches_do({123, 124}, set(), {(1,0)})
+    assert "lines 123-125 and branches 1->exit, 1->2 do" == coverup.lines_branches_do({123,124,125}, set(), {(1,2),(1,0)})
 
 
 def test_clean_error_failure():
