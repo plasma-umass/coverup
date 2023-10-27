@@ -26,6 +26,10 @@ def test_lines_branches_do():
     assert "lines 123-124 and branch 1->exit do" == coverup.lines_branches_do({123, 124}, set(), {(1,0)})
     assert "lines 123-125 and branches 1->exit, 1->2 do" == coverup.lines_branches_do({123,124,125}, set(), {(1,2),(1,0)})
 
+    # if a line doesn't execute, neither do the branches that touch it...
+    assert "lines 123-125 do" == coverup.lines_branches_do({123,124,125}, set(), {(123,124), (10,125)})
+
+
 
 def test_clean_error_failure():
     error = """

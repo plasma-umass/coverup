@@ -150,22 +150,24 @@ def format_ranges(lines: T.Set[int], negative: T.Set[int]) -> str:
 
 
 def lines_branches_do(lines: T.Set[int], neg_lines: T.Set[int], branches: T.Set[T.Tuple[int, int]]) -> str:
+    relevant_branches = {b for b in branches if b[0] not in lines and b[1] not in lines} if branches else set()
+
     s = ''
     if lines:
         s += f"line{'s' if len(lines)>1 else ''} {format_ranges(lines, neg_lines)}"
 
-        if branches:
+        if relevant_branches:
             s += " and "
 
     def get_branches():
-        for br in sorted(branches):
+        for br in sorted(relevant_branches):
             yield f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
 
-    if branches:
-        s += f"branch{'es' if len(branches)>1 else ''} "
+    if relevant_branches:
+        s += f"branch{'es' if len(relevant_branches)>1 else ''} "
         s += ", ".join(get_branches())
 
-    s += " does" if len(lines)+len(branches) == 1 else " do"
+    s += " does" if len(lines)+len(relevant_branches) == 1 else " do"
     return s
 
 
@@ -581,17 +583,21 @@ Modify it to correct that; respond only with the Python code in backticks.
 
 
 if __name__ == "__main__":
+    import sys
     args = parse_args()
 
     if args.rate_limit:
         from aiolimiter import AsyncLimiter
         rate_limit = AsyncLimiter(args.rate_limit, 60)
 
+    if not args.tests_dir.exists():
+        print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
+        sys.exit(1)
+
     cache = load_cache() if args.cache else None
 
     if 'OPENAI_API_KEY' not in os.environ:
         print("Please place your OpenAI key in an environment variable named OPENAI_API_KEY and try again.")
-        import sys
         sys.exit(1)
 
     openai.key=os.environ['OPENAI_API_KEY']
