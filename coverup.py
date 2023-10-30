@@ -208,16 +208,17 @@ class CodeSegment:
         self.context = context
 
 
-    def __str__(self):
-        return f"CodeSegment({self.name}, \"{self.filename}\" {self.begin}-{self.end-1})"
+    def __repr__(self):
+        return f"CodeSegment(\"{self.filename}\", \"{self.name}\", {self.begin}, {self.end}, " + \
+               f"{self.missing_lines}, {self.executed_lines}, {self.missing_branches}, {self.context})"
 
 
     def identify(self) -> str:
         return f"{self.filename}:{self.begin}-{self.end-1}"
 
-    def get_excerpt(self, base_path = ''):
+    def get_excerpt(self):
         excerpt = []
-        with open(base_path + self.filename, "r") as src:
+        with open(self.filename, "r") as src:
             code = src.readlines()
 
             for b, e in self.context:
@@ -270,7 +271,7 @@ def measure_coverage(seg: CodeSegment, test: str):
     return cov["files"]
 
 
-def get_missing_coverage(jsonfile, base_path = ''):
+def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
     """
@@ -282,43 +283,45 @@ def get_missing_coverage(jsonfile, base_path = ''):
 
     code_segs = []
 
+    def find_first_line(node):
+        return min([node.lineno] + [d.lineno for d in node.decorator_list])
+
     def find_enclosing(root, line):
         for node in ast.walk(root):
             if node is root:
                 continue
 
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and \
-               hasattr(node, "lineno") and node.lineno <= line <= node.end_lineno:
-                return node
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and hasattr(node, "lineno"):
+                # skip back to include decorators, as they are really part of the definition
+                begin = find_first_line(node)
+                if begin <= line <= node.end_lineno:
+                    return (node, begin, node.end_lineno+1) # +1 for range() style
 
-    def get_line_range(node):
-        begin = node.lineno
-        for d in node.decorator_list: # skip back to include decorators, in case they matter
-            begin = min(begin, d.lineno)
-
-        return (begin, node.end_lineno+1)   # +1 for range() style
 
     for fname in cov['files']:
-        with open(base_path + fname, "r") as src:
-            tree = ast.parse(src.read(), base_path + fname)
+        with open(fname, "r") as src:
+            tree = ast.parse(src.read(), fname)
 
         code_this_file = defaultdict(set)
         ctx_this_file = defaultdict(set)
 
         for line in cov['files'][fname]['missing_lines']:
-            if node := find_enclosing(tree, line):
-                begin, end = get_line_range(node)
+            if element := find_enclosing(tree, line):
+                node, begin, end = element
 
                 context = []
 
-                while end - begin > args.line_limit:
-                    child = find_enclosing(node, line)
-                    if not child:
-                        break
+                if isinstance(node, ast.ClassDef) and end - begin > line_limit:
+                    if element := find_enclosing(node, line):
+                        context.append((begin, node.lineno+1))
+                        node, begin, end = element
 
-                    context.append((begin, node.lineno+1))
-                    begin, end = get_line_range(child)
-                    node = child
+                    else:
+                        end = begin + line_limit
+                        for child in ast.iter_child_nodes(node):
+                            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and \
+                               hasattr(child, "lineno"):
+                                end = min(end, find_first_line(child))
 
                 #print(f"{fname} line {line} -> {str(node)} {begin}..{node.end_lineno}")
                 code_this_file[(node.name, begin, end)].add(line)
@@ -604,7 +607,8 @@ if __name__ == "__main__":
     if 'OPENAI_ORGANIZATION' in os.environ:
         openai.organization=os.environ['OPENAI_ORGANIZATION']
 
-    segments = sorted(get_missing_coverage(args.cov_json), key=lambda seg: seg.missing_count(), reverse=True)
+    segments = sorted(get_missing_coverage(args.cov_json, line_limit=args.line_limit),
+                      key=lambda seg: seg.missing_count(), reverse=True)
 
     checkpoint_file = Path(CKPT_FILE)
     done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
