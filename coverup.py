@@ -328,7 +328,7 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
                             # FIXME lines in between functions / classes
                             continue
 
-                print(f"{fname} line {line} -> {str(node)} {begin}..{end}")
+                #print(f"{fname} line {line} -> {str(node)} {begin}..{end}")
                 code_this_file[(node.name, begin, end)].add(line)
                 ctx_this_file[(node.name, begin, end)] = context
 
