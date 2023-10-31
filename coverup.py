@@ -76,6 +76,10 @@ def parse_args():
                     action=argparse.BooleanOptionalAction,
                     help=f'whether to cache model responses')
 
+    ap.add_argument('--dry-run', default=False,
+                    action=argparse.BooleanOptionalAction,
+                    help=f'whether to actually prompt the model; used for testing')
+
     ap.add_argument('--show-details', default=False,
                     action=argparse.BooleanOptionalAction,
                     help=f'show details of lines/branches after each response')
@@ -502,6 +506,9 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
     log_write(seg, messages[0]['content'])
 
     attempts = 0
+
+    if args.dry_run:
+        return
 
     while True:
         if (attempts > 5):
