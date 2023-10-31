@@ -61,6 +61,9 @@ def test_basic():
         assert bar.begin == 20 # decorator line
         assert '@staticmethod' in bar.get_excerpt(), "Decorator missing"
 
+        for seg in segs:
+            for l in seg.missing_lines:
+                assert seg.begin <= l <= seg.end
 
 def test_coarse():
     with mockfs({"tests/somecode.py": somecode_py,
@@ -73,6 +76,10 @@ def test_coarse():
 
         assert segs[seg_names.index('SomeCode')].begin == 3 # entire class?
         assert segs[seg_names.index('SomeCode')].end == 24  # entire class?
+
+        for seg in segs:
+            for l in seg.missing_lines:
+                assert seg.begin <= l <= seg.end
 
 
 def test_no_branch_coverage():
@@ -160,3 +167,41 @@ class Foo:
         assert ['Foo', 'foo'] == [seg.name for seg in segs]
         assert segs[0].begin == 1
         assert segs[0].end <= 4 # shouldn't include "@staticmethod"
+        assert segs[0].missing_lines == {1,2}
+
+
+def test_class_statements_after_methods():
+    code_py = """
+class Foo:
+    @staticmethod
+    def foo():
+        pass
+
+    x = 0
+    y = 1
+
+    def bar():
+        pass
+""".lstrip()
+
+    code_json = """
+{
+    "files": {
+        "code.py": {
+            "executed_lines": [
+            ],
+            "missing_lines": [
+                1, 2, 3, 4, 6, 7, 9, 10
+            ]
+        }
+    }
+}
+"""
+    with mockfs({"code.py": code_py, "code.json": code_json}):
+        segs = coverup.get_missing_coverage('code.json', line_limit=4)
+
+        print("\n".join(str(s) for s in segs))
+
+        for seg in segs:
+            for l in seg.missing_lines:
+                assert seg.begin <= l <= seg.end

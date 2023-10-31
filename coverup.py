@@ -322,8 +322,13 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
                             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and \
                                hasattr(child, "lineno"):
                                 end = min(end, find_first_line(child))
+                                break
 
-                #print(f"{fname} line {line} -> {str(node)} {begin}..{node.end_lineno}")
+                        if line >= end:
+                            # FIXME lines in between functions / classes
+                            continue
+
+                print(f"{fname} line {line} -> {str(node)} {begin}..{end}")
                 code_this_file[(node.name, begin, end)].add(line)
                 ctx_this_file[(node.name, begin, end)] = context
 
