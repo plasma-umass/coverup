@@ -311,9 +311,9 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
 
                 context = []
 
-                if isinstance(node, ast.ClassDef) and end - begin > line_limit:
+                while isinstance(node, ast.ClassDef) and end - begin > line_limit:
                     if element := find_enclosing(node, line):
-                        context.append((begin, node.lineno+1))
+                        context.append((begin, node.lineno+1)) # +1 for range() style
                         node, begin, end = element
 
                     else:
@@ -324,13 +324,11 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
                                 end = min(end, find_first_line(child))
                                 break
 
-                        if line >= end:
-                            # FIXME lines in between functions / classes
-                            continue
-
-                #print(f"{fname} line {line} -> {str(node)} {begin}..{end}")
-                code_this_file[(node.name, begin, end)].add(line)
-                ctx_this_file[(node.name, begin, end)] = context
+                if line < end:
+                    # FIXME handle lines >= end (lines between functions, etc.) somehow
+                    #print(f"{fname} line {line} -> {node} {begin}..{end}")
+                    code_this_file[(node.name, begin, end)].add(line)
+                    ctx_this_file[(node.name, begin, end)] = context
 
         if code_this_file:
             for it in code_this_file:

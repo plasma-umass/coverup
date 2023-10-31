@@ -205,3 +205,43 @@ class Foo:
         for seg in segs:
             for l in seg.missing_lines:
                 assert seg.begin <= l <= seg.end
+
+
+def test_class_within_class():
+    code_py = """
+class Foo:
+    foo_ = 0
+    class Bar:
+        bar_ = 0
+        def __init__(self):
+            self.x = 0
+            self.y = 0
+
+""".lstrip()
+
+    code_json = """
+{
+    "files": {
+        "code.py": {
+            "executed_lines": [
+            ],
+            "missing_lines": [
+                1, 2, 3, 4, 5, 6, 7
+            ]
+        }
+    }
+}
+"""
+    with mockfs({"code.py": code_py, "code.json": code_json}):
+        segs = coverup.get_missing_coverage('code.json', line_limit=2)
+
+        print("\n".join(str(s) for s in segs))
+
+        for seg in segs:
+            for l in seg.missing_lines:
+                assert seg.begin <= l <= seg.end
+
+        seg_names = [seg.name for seg in segs]
+        init = segs[seg_names.index('__init__')]
+
+        assert init.context == [(1,2), (3,4)]
