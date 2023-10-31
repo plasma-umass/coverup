@@ -298,14 +298,18 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
                     return (node, begin, node.end_lineno+1) # +1 for range() style
 
 
-    for fname in cov['files']:
+    for fname, fcov in cov['files'].items():
         with open(fname, "r") as src:
             tree = ast.parse(src.read(), fname)
 
-        code_this_file = defaultdict(set)
-        ctx_this_file = defaultdict(set)
+        missing_lines = set(fcov['missing_lines'])
+        executed_lines = set(fcov['executed_lines'])
+        missing_branches = fcov.get('missing_branches', set())
 
-        for line in cov['files'][fname]['missing_lines']:
+        line_ranges = dict()
+
+        lines_needed = missing_lines.union(set(sum(missing_branches,[])))
+        for line in sorted(lines_needed):   # sorted() simplifies tests
             if element := find_enclosing(tree, line):
                 node, begin, end = element
 
@@ -324,28 +328,19 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
                                 end = min(end, find_first_line(child))
                                 break
 
-                if line < end:
+                if line < end and (begin, end) not in line_ranges:
                     # FIXME handle lines >= end (lines between functions, etc.) somehow
                     #print(f"{fname} line {line} -> {node} {begin}..{end}")
-                    code_this_file[(node.name, begin, end)].add(line)
-                    ctx_this_file[(node.name, begin, end)] = context
+                    line_ranges[(begin, end)] = (node, context)
 
-        if code_this_file:
-            for it in code_this_file:
-                name, begin, end = it
+        if line_ranges:
+            for (begin, end), (node, context) in line_ranges.items():
                 line_range_set = {*range(begin, end)}
-                missing_lines = code_this_file[it]
-                executed_lines = set(cov['files'][fname]['executed_lines']).intersection(line_range_set)
-                if 'missing_branches' in cov['files'][fname]:
-                    missing_branches = {tuple(b) for b in cov['files'][fname]['missing_branches'] \
-                                        if b[0] in line_range_set}
-                else:
-                    missing_branches = set()
-                code_segs.append(CodeSegment(fname, name, begin, end,
-                                             missing_lines=missing_lines,
-                                             executed_lines=executed_lines,
-                                             missing_branches=missing_branches,
-                                             context=ctx_this_file[it]))
+                code_segs.append(CodeSegment(fname, node.name, begin, end,
+                                             missing_lines=missing_lines.intersection(line_range_set),
+                                             executed_lines=executed_lines.intersection(line_range_set),
+                                             missing_branches={tuple(b) for b in missing_branches if b[0] in line_range_set},
+                                             context=context))
 
     return code_segs
 

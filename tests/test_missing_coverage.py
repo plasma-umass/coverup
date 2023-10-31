@@ -242,6 +242,54 @@ class Foo:
                 assert seg.begin <= l <= seg.end
 
         seg_names = [seg.name for seg in segs]
-        init = segs[seg_names.index('__init__')]
+        assert seg_names == ['Foo', 'Bar', '__init__']
 
+        init = segs[seg_names.index('__init__')]
         assert init.context == [(1,2), (3,4)]
+
+
+def test_only_coverage_missing():
+    code_py = """
+class Foo:
+    class Bar:
+        def __init__(self, x):
+            self.x = None
+            if x:
+                self.x = x
+            self.y = 0
+
+""".lstrip()
+
+    code_json = """
+{
+    "files": {
+        "code.py": {
+            "executed_lines": [
+                1, 2, 3, 4, 5, 6, 7
+            ],
+            "missing_lines": [
+            ],
+            "executed_branches": [
+                [5, 6]
+            ],
+            "missing_branches": [
+                [5, 7]
+            ]
+        }
+    }
+}
+"""
+    with mockfs({"code.py": code_py, "code.json": code_json}):
+        segs = coverup.get_missing_coverage('code.json', line_limit=4)
+
+        print("\n".join(str(s) for s in segs))
+
+        for seg in segs:
+            for l in seg.missing_lines:
+                assert seg.begin <= l <= seg.end
+
+        seg_names = [seg.name for seg in segs]
+        assert seg_names == ['__init__']
+        assert segs[0].context == [(1,2), (2,3)]
+        assert segs[0].missing_lines == set()
+        assert segs[0].missing_branches == {(5,7)}
