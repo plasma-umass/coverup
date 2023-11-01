@@ -26,7 +26,7 @@ class mockfs:
 
 
 somecode_py = (Path("tests") / "somecode.py").read_text()
-somecode_json = """
+somecode_json = """\
 {
     "files": {
         "tests/somecode.py": {
@@ -83,7 +83,7 @@ def test_coarse():
 
 
 def test_no_branch_coverage():
-    somecode_json_no_branch = """
+    somecode_json_no_branch = """\
 {
     "files": {
         "tests/somecode.py": {
@@ -106,7 +106,7 @@ def test_no_branch_coverage():
 
 
 def test_all_missing():
-    somecode_json = """
+    somecode_json = """\
 {
     "files": {
         "tests/somecode.py": {
@@ -137,16 +137,16 @@ def test_all_missing():
 
 
 def test_class_excludes_decorator_of_function_if_at_limit():
-    code_py = """
+    code_py = """\
 class Foo:
     x = 0
 
     @staticmethod
     def foo():
         pass
-""".lstrip()
+"""
 
-    code_json = """
+    code_json = """\
 {
     "files": {
         "code.py": {
@@ -171,7 +171,7 @@ class Foo:
 
 
 def test_class_statements_after_methods():
-    code_py = """
+    code_py = """\
 class Foo:
     @staticmethod
     def foo():
@@ -182,9 +182,9 @@ class Foo:
 
     def bar():
         pass
-""".lstrip()
+"""
 
-    code_json = """
+    code_json = """\
 {
     "files": {
         "code.py": {
@@ -208,7 +208,7 @@ class Foo:
 
 
 def test_class_within_class():
-    code_py = """
+    code_py = """\
 class Foo:
     foo_ = 0
     class Bar:
@@ -217,9 +217,9 @@ class Foo:
             self.x = 0
             self.y = 0
 
-""".lstrip()
+"""
 
-    code_json = """
+    code_json = """\
 {
     "files": {
         "code.py": {
@@ -249,7 +249,7 @@ class Foo:
 
 
 def test_only_coverage_missing():
-    code_py = """
+    code_py = """\
 class Foo:
     class Bar:
         def __init__(self, x):
@@ -258,9 +258,9 @@ class Foo:
                 self.x = x
             self.y = 0
 
-""".lstrip()
+"""
 
-    code_json = """
+    code_json = """\
 {
     "files": {
         "code.py": {
