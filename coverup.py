@@ -375,6 +375,48 @@ def compute_cost(usage: dict, model: str) -> float:
     return None
 
 
+def find_imports(python_code: str) -> T.List[str]:
+    import ast
+
+    try:
+        t = ast.parse(python_code)
+    except SyntaxError:
+        return []
+
+    modules = []
+
+    for n in ast.walk(t):
+        if isinstance(n, ast.Import):
+            for name in n.names:
+                if isinstance(name, ast.alias):
+                    modules.append(name.name)
+
+        elif isinstance(n, ast.ImportFrom):
+            modules.append(n.module)
+
+    return modules
+
+
+module_available = dict()
+def missing_imports(modules: T.List[str]) -> bool:
+    import importlib
+
+    any_missing = False
+
+    for module in modules:
+        if module not in module_available:
+            try:
+                importlib.import_module(module)
+                module_available[module] = True
+            except ImportError:
+                module_available[module] = False
+
+        if not module_available[module]:
+            any_missing = True
+
+    return any_missing
+
+
 rate_limit = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
     """Sends a GPT chat request, handling common failures and returning the response."""
@@ -480,7 +522,7 @@ class Progress:
 
 
 progress = None
-async def improve_coverage(seg: CodeSegment):
+async def improve_coverage(seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
     global args, progress
 
@@ -508,7 +550,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
     attempts = 0
 
     if args.dry_run:
-        return
+        return True
 
     while True:
         if (attempts > 5):
@@ -538,6 +580,9 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         else:
             log_write(seg, "No Python code in GPT response, giving up")
             break
+
+        if missing_imports(find_imports(last_test)):
+            return False # not finished: needs a missing module
 
         try:
             result = measure_coverage(seg, last_test)
@@ -569,7 +614,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 "role": "user",
                 "content": f"""
 This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
-Modify it to correct that; respond only with the Python code in backticks.
+Modify it to correct that; respond only with the complete Python code in backticks.
 """
             })
             log_write(seg, messages[-1]['content'])
@@ -584,10 +629,12 @@ Modify it to correct that; respond only with the Python code in backticks.
             messages.append({
                 "role": "user",
                 "content": "Executing the test yields an error, shown below.\n" +\
-                           "Modify the test to correct it; respond only with the Python code in backticks.\n\n" +\
+                           "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
                            clean_error(str(e.output, 'UTF-8'))
             })
             log_write(seg, messages[-1]['content'])
+
+    return True # finished
 
 
 if __name__ == "__main__":
@@ -633,17 +680,18 @@ if __name__ == "__main__":
             pass
 
     async def work_segment(seg: CodeSegment) -> None:
-        await improve_coverage(seg)
+        if await improve_coverage(seg):
+            # Only mark done if was able to complete, so that it can be retried
+            # after installing any missing modules
+            done[seg.filename].add((seg.begin, seg.end))
 
-        done[seg.filename].add((seg.begin, seg.end))
-
-        if args.checkpoint:
-            with checkpoint_file.open("w") as f:
-                json.dump({
-                    'version': 1,
-                    'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
-                    'usage': progress.usage
-                }, f)
+            if args.checkpoint:
+                with checkpoint_file.open("w") as f:
+                    json.dump({
+                        'version': 1,
+                        'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
+                        'usage': progress.usage
+                    }, f)
 
         progress.update()
 
@@ -668,3 +716,8 @@ if __name__ == "__main__":
     asyncio.run(runit())
 
     progress.close()
+
+    modules_missing = [m for m in module_available if not module_available[m]]
+    if modules_missing:
+        print("Some modules are missing; please install and re-run to continue.\n")
+        print(f"Modules missing: {', '.join(str(m) for m in modules_missing)}")

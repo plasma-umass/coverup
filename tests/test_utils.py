@@ -123,3 +123,23 @@ def test_compute_cost():
 
     # unknown token types
     assert None  == coverup.compute_cost({'blue_tokens':60625, 'red_tokens':4731}, 'gpt-4')
+
+
+def test_find_imports():
+    assert ['abc', 'bar', 'baz', 'cba', 'foo', 'xy'] == sorted(coverup.find_imports("""\
+import foo, bar
+from baz import a, b, c
+from ..xy import yz
+
+def foo_func():
+    import abc
+    from cba import xyzzy
+"""))
+
+    assert [] == coverup.find_imports("not a Python program")
+
+
+def test_missing_imports():
+    assert not coverup.missing_imports(['ast', 'dis', 'sys'])
+    assert not coverup.missing_imports([])
+    assert coverup.missing_imports(['sys', 'idontexist'])
