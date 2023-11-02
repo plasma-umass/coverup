@@ -127,8 +127,8 @@ def test_compute_cost():
 
 def test_find_imports():
     assert ['abc', 'bar', 'baz', 'cba', 'foo', 'xy'] == sorted(coverup.find_imports("""\
-import foo, bar
-from baz import a, b, c
+import foo, bar.baz
+from baz.zab import a, b, c
 from ..xy import yz
 
 def foo_func():

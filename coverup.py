@@ -248,7 +248,7 @@ def log_write(seg: CodeSegment, m: str) -> None:
 
     global log_file
     if not log_file:
-        log_file = open(PREFIX + "-log", "w+", buffering=1)    # 1 = line buffered
+        log_file = open(PREFIX + "-log", "a", buffering=1)    # 1 = line buffered
 
     log_file.write(f"---- {seg.identify()} ----\n{m}\n")
 
@@ -389,10 +389,10 @@ def find_imports(python_code: str) -> T.List[str]:
         if isinstance(n, ast.Import):
             for name in n.names:
                 if isinstance(name, ast.alias):
-                    modules.append(name.name)
+                    modules.append(name.name.split('.')[0])
 
         elif isinstance(n, ast.ImportFrom):
-            modules.append(n.module)
+            modules.append(n.module.split('.')[0])
 
     return modules
 
