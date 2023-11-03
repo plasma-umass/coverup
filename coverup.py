@@ -198,6 +198,7 @@ class CodeSegment:
     """Represents a section of code that is missing coverage."""
 
     def __init__(self, filename: Path, name: str, begin: int, end: int,
+                 lines_of_interest: T.Set[int],
                  missing_lines: T.Set[int],
                  executed_lines: T.Set[int],
                  missing_branches: T.Set[T.Tuple[int, int]],
@@ -206,11 +207,11 @@ class CodeSegment:
         self.name = name
         self.begin = begin
         self.end = end
+        self.lines_of_interest = lines_of_interest
         self.missing_lines = missing_lines
         self.executed_lines = executed_lines
         self.missing_branches = missing_branches
         self.context = context
-
 
     def __repr__(self):
         return f"CodeSegment(\"{self.filename}\", \"{self.name}\", {self.begin}, {self.end}, " + \
@@ -227,15 +228,26 @@ class CodeSegment:
 
             for b, e in self.context:
                 for i in range(b, e):
-                    excerpt.extend([f"{i:10}: ", code[i-1]])
+                    excerpt.extend([f"{'':10}  ", code[i-1]])
 
-            for i in range(self.begin, self.end):
-                excerpt.extend([f"{i:10}: ", code[i-1]])
+            if not self.executed_lines:
+                for i in range(self.begin, self.end):
+                    excerpt.extend([f"{'':10}  ", code[i-1]])
+
+            else:
+                for i in range(self.begin, self.end):
+                    if i in self.lines_of_interest:
+                        excerpt.extend([f"{i:10}: ", code[i-1]])
+                    else:
+                        excerpt.extend([f"{'':10}  ", code[i-1]])
 
         return ''.join(excerpt)
 
 
     def lines_branches_missing_do(self):
+        if not self.executed_lines:
+            return 'it does'
+
         return lines_branches_do(self.missing_lines, self.executed_lines, self.missing_branches)
 
     def missing_count(self) -> int:
@@ -312,8 +324,9 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
 
         line_ranges = dict()
 
-        lines_needed = missing_lines.union(set(sum(missing_branches,[])))
-        for line in sorted(lines_needed):   # sorted() simplifies tests
+        lines_of_interest = missing_lines.union(set(sum(missing_branches,[])))
+        lines_of_interest.discard(0)  # may result from N->0 branches
+        for line in sorted(lines_of_interest):   # sorted() simplifies tests
             if element := find_enclosing(tree, line):
                 node, begin, end = element
 
@@ -341,6 +354,7 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
             for (begin, end), (node, context) in line_ranges.items():
                 line_range_set = {*range(begin, end)}
                 code_segs.append(CodeSegment(fname, node.name, begin, end,
+                                             lines_of_interest=lines_of_interest.intersection(line_range_set),
                                              missing_lines=missing_lines.intersection(line_range_set),
                                              executed_lines=executed_lines.intersection(line_range_set),
                                              missing_branches={tuple(b) for b in missing_branches if b[0] in line_range_set},
