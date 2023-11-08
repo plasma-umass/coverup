@@ -147,6 +147,11 @@ def format_ranges(lines: T.Set[int], negative: T.Set[int]) -> str:
     return ", ".join(get_range(lines))
 
 
+def format_branches(branches):
+    for br in sorted(branches):
+        yield f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
+
+
 def lines_branches_do(lines: T.Set[int], neg_lines: T.Set[int], branches: T.Set[T.Tuple[int, int]]) -> str:
     relevant_branches = {b for b in branches if b[0] not in lines and b[1] not in lines} if branches else set()
 
@@ -157,13 +162,9 @@ def lines_branches_do(lines: T.Set[int], neg_lines: T.Set[int], branches: T.Set[
         if relevant_branches:
             s += " and "
 
-    def get_branches():
-        for br in sorted(relevant_branches):
-            yield f"{br[0]}->exit" if br[1] == 0 else f"{br[0]}->{br[1]}"
-
     if relevant_branches:
         s += f"branch{'es' if len(relevant_branches)>1 else ''} "
-        s += ", ".join(get_branches())
+        s += ", ".join(format_branches(relevant_branches))
 
     s += " does" if len(lines)+len(relevant_branches) == 1 else " do"
     return s
@@ -611,9 +612,12 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             # XXX insist on len(now_missing) == 0 while saving best test?
 #            if len(now_missing_lines)+len(now_missing_branches) == 0:
             if len(now_missing_lines)+len(now_missing_branches) < seg.missing_count():
-                # good 'nough
+                # the test is good 'nough...
                 new_test = new_test_file()
-                new_test.write_text(last_test)
+                new_test.write_text(f"# file {seg.identify()}\n" +\
+                                    f"# lines {sorted(seg.missing_lines)}\n" +\
+                                    f"# branches {format_branches(seg.missing_branches)}\n\n" +\
+                                    last_test)
                 log_write(seg, f"Saved as {new_test}\n")
                 progress.add_good()
                 break
