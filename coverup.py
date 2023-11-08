@@ -12,27 +12,22 @@ import re
 PREFIX = 'coverup'
 CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
+DEFAULT_MODEL='gpt-4-1106-preview'
 
 MODEL_COST = {
     # cost by token type, for 1K tokens
-    # retrieved from https://openai.com/pricing#language-models on 2023-10-13
+    # retrieved from https://openai.com/pricing#language-models on 2023-11-07
+    'gpt-4-1106-preview': {
+        'prompt_tokens': 0.01, 'completion_tokens': 0.03
+    },
     'gpt-4': {
         'prompt_tokens': 0.03, 'completion_tokens': 0.06
     },
     'gpt-4-32k': {
         'prompt_tokens': 0.06, 'completion_tokens': 0.12
     },
-    'gpt-3.5': {
-        'prompt_tokens': 0.0015, 'completion_tokens': 0.002
-    },
-    'gpt-3.5-16k': {
-        'prompt_tokens': 0.003, 'completion_tokens': 0.004
-    },
     'gpt-3.5-turbo': {
-        'prompt_tokens': 0.0015, 'completion_tokens': 0.002
-    },
-    'gpt-3.5-turbo-16k': {
-        'prompt_tokens': 0.003, 'completion_tokens': 0.004
+        'prompt_tokens': 0.001, 'completion_tokens': 0.002
     },
 }
 
@@ -44,8 +39,7 @@ def parse_args():
     ap.add_argument('cov_json', type=Path,
                     help='SlipCover JSON output file with coverage information')
 
-    # "gpt-3.5-turbo", "gpt-3.5-turbo-16k",
-    ap.add_argument('--model', type=str, default='gpt-4',
+    ap.add_argument('--model', type=str, default=DEFAULT_MODEL,
                     help='OpenAI model to use')
 
     # TODO derive this somehow?
