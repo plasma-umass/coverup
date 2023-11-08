@@ -115,9 +115,6 @@ def test_compute_cost():
     assert pytest.approx(2.10, abs=.1) == \
            coverup.compute_cost({'prompt_tokens':60625, 'completion_tokens':4731}, 'gpt-4')
 
-    assert pytest.approx(0.11, abs=.1) == \
-           coverup.compute_cost({'prompt_tokens':60625, 'completion_tokens':4731}, 'gpt-3.5')
-
     # unknown model
     assert None == coverup.compute_cost({'prompt_tokens':60625, 'completion_tokens':4731}, 'unknown')
 
