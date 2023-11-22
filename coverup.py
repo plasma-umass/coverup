@@ -471,6 +471,10 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             print(f"{str(e)}; waiting {sleep_time:.1f}s")
             await asyncio.sleep(sleep_time)
 
+        except openai.error.APIConnectionError as e:
+            # usually a server-side error... just retry
+            print(e)
+
         except openai.error.InvalidRequestError as e:
             # usually "maximum context length" XXX check for this?
             log_write(seg, f"Received {e}")
@@ -616,7 +620,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 new_test = new_test_file()
                 new_test.write_text(f"# file {seg.identify()}\n" +\
                                     f"# lines {sorted(seg.missing_lines)}\n" +\
-                                    f"# branches {format_branches(seg.missing_branches)}\n\n" +\
+                                    f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
                                     last_test)
                 log_write(seg, f"Saved as {new_test}\n")
                 progress.add_good()
