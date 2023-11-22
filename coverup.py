@@ -7,30 +7,13 @@ from collections import defaultdict
 from pathlib import Path
 import typing as T
 import re
+import llm_utils
 
 
 PREFIX = 'coverup'
 CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
 DEFAULT_MODEL='gpt-4-1106-preview'
-
-MODEL_COST = {
-    # cost by token type, for 1K tokens
-    # retrieved from https://openai.com/pricing#language-models on 2023-11-07
-    'gpt-4-1106-preview': {
-        'prompt_tokens': 0.01, 'completion_tokens': 0.03
-    },
-    'gpt-4': {
-        'prompt_tokens': 0.03, 'completion_tokens': 0.06
-    },
-    'gpt-4-32k': {
-        'prompt_tokens': 0.06, 'completion_tokens': 0.12
-    },
-    'gpt-3.5-turbo': {
-        'prompt_tokens': 0.001, 'completion_tokens': 0.002
-    },
-}
-
 
 def parse_args():
     import argparse
@@ -378,11 +361,15 @@ def count_tokens(completion: dict):
 
 def compute_cost(usage: dict, model: str) -> float:
     from math import ceil
-    if model in MODEL_COST and set(usage.keys()).issubset(MODEL_COST[model].keys()):
-        return sum(MODEL_COST[model][token_type]*ceil(count/1024) for token_type, count in usage.items())
+
+    if 'prompt_tokens' in usage and 'completion_tokens' in usage:
+        try:
+            return llm_utils.calculate_cost(usage['prompt_tokens'], usage['completion_tokens'], model)
+
+        except ValueError:
+            pass # unknown model
 
     return None
-
 
 def find_imports(python_code: str) -> T.List[str]:
     import ast

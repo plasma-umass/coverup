@@ -112,7 +112,10 @@ E   ImportError: cannot import name 'JSONProvider' from 'flask.json' (/Users/jua
 
 
 def test_compute_cost():
-    assert pytest.approx(2.10, abs=.1) == \
+    assert pytest.approx(0.033, abs=.001) == \
+           coverup.compute_cost({'prompt_tokens':1100, 'completion_tokens':0}, 'gpt-4')
+
+    assert pytest.approx(2.10, abs=.01) == \
            coverup.compute_cost({'prompt_tokens':60625, 'completion_tokens':4731}, 'gpt-4')
 
     # unknown model
