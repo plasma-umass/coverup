@@ -15,6 +15,54 @@ CKPT_FILE = PREFIX + "-ckpt.json"
 CACHE_FILE = Path(PREFIX + "-cache.json")
 DEFAULT_MODEL='gpt-4-1106-preview'
 
+# Tier 5 rate limits for models; tuples indicate limit and interval in seconds
+# Extracted from https://platform.openai.com/account/limits on 11/22/23
+MODEL_RATE_LIMITS = {
+    'gpt-3.5-turbo': {
+        'token': (1_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-3.5-turbo-0301': {
+        'token': (1_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-3.5-turbo-0613': {
+        'token': (1_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-3.5-turbo-1106': {
+        'token': (1_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-3.5-turbo-16k':  {
+        'token': (1_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-3.5-turbo-16k-0613': {
+        'token': (1_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-3.5-turbo-instruct': {
+        'token': (250_000, 60), 'request': (3_000, 60)
+    },
+    'gpt-3.5-turbo-instruct-0914': {
+        'token': (250_000, 60), 'request': (3_000, 60)
+    },
+    'gpt-4': {
+        'token': (300_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4-0314': {
+        'token': (300_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4-0613': {
+        'token': (300_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4-1106-preview': {
+        'token': (300_000, 60), 'request': (5_000, 60)
+    }
+}
+
+def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int]:
+    if (model_limits := MODEL_RATE_LIMITS.get(model_name)):
+        return model_limits.get('token')
+
+    return None
+
+
 def parse_args():
     import argparse
     ap = argparse.ArgumentParser(prog='CoverUp',
@@ -43,8 +91,8 @@ def parse_args():
     ap.add_argument('--only-file', type=str,
                     help='only process segments for the given source file')
 
-    ap.add_argument('--rate-limit', type=int, default=40000,
-                    help='max. tokens/minute to send in prompts; 0 means no limit')
+    ap.add_argument('--rate-limit', type=int,
+                    help='max. tokens/minute to send in prompts')
 
     ap.add_argument('--max-backoff', type=int, default=64,
                     help='max. number of seconds for backoff interval')
@@ -413,11 +461,11 @@ def missing_imports(modules: T.List[str]) -> bool:
     return any_missing
 
 
-rate_limit = None
+token_rate_limit = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
     """Sends a GPT chat request, handling common failures and returning the response."""
 
-    global rate_limit
+    global token_rate_limit
 
     sleep = 1
     while True:
@@ -432,8 +480,8 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                 key = re.sub(f"{PREFIX}_tmp_.+?\\.py\\b", f"{PREFIX}_tmp.py", key)
 
                 if not (response := cache.get(key, None)):
-                    if rate_limit:
-                        await rate_limit.acquire(count_tokens(completion))
+                    if token_rate_limit:
+                        await token_rate_limit.acquire(count_tokens(completion))
 
                     response = await openai.ChatCompletion.acreate(**completion)
 
@@ -442,8 +490,8 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                     response['cached'] = True
 
             else:
-                if rate_limit:
-                    await rate_limit.acquire(count_tokens(completion))
+                if token_rate_limit:
+                    await token_rate_limit.acquire(count_tokens(completion))
 
                 response = await openai.ChatCompletion.acreate(**completion)
 
@@ -644,9 +692,11 @@ if __name__ == "__main__":
     import sys
     args = parse_args()
 
-    if args.rate_limit:
+    if args.rate_limit or token_rate_limit_for_model(args.model):
+        limit = (args.rate_limit, 60) if args.rate_limit else token_rate_limit_for_model(args.model)
         from aiolimiter import AsyncLimiter
-        rate_limit = AsyncLimiter(args.rate_limit, 60)
+        token_rate_limit = AsyncLimiter(*limit)
+        # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
 
     if not args.tests_dir.exists():
         print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
@@ -723,4 +773,4 @@ if __name__ == "__main__":
     modules_missing = [m for m in module_available if not module_available[m]]
     if modules_missing:
         print("Some modules are missing; please install and re-run to continue.\n")
-        print(f"Modules missing: {', '.join(str(m) for m in modules_missing)}")
+        print(f"Modules possibly missing: {', '.join(str(m) for m in modules_missing)}")
