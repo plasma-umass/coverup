@@ -12,7 +12,6 @@ import llm_utils
 
 PREFIX = 'coverup'
 CKPT_FILE = PREFIX + "-ckpt.json"
-CACHE_FILE = Path(PREFIX + "-cache.json")
 DEFAULT_MODEL='gpt-4-1106-preview'
 
 # Tier 5 rate limits for models; tuples indicate limit and interval in seconds
@@ -97,10 +96,6 @@ def parse_args():
     ap.add_argument('--max-backoff', type=int, default=64,
                     help='max. number of seconds for backoff interval')
 
-    ap.add_argument('--cache', default=False,
-                    action=argparse.BooleanOptionalAction,
-                    help=f'whether to cache model responses')
-
     ap.add_argument('--dry-run', default=False,
                     action=argparse.BooleanOptionalAction,
                     help=f'whether to actually prompt the model; used for testing')
@@ -109,33 +104,6 @@ def parse_args():
                     action=argparse.BooleanOptionalAction,
                     help=f'show details of lines/branches after each response')
     return ap.parse_args()
-
-
-def load_cache():
-    """Loads CoverUp's response cache."""
-    cache = dict()
-    try:
-        with CACHE_FILE.open("r") as f:
-            for line in f.readlines():
-                cache.update(json.loads(line))
-
-    except json.decoder.JSONDecodeError:
-        pass
-    except FileNotFoundError:
-        pass
-
-    return cache
-
-
-def update_cache(key: str, response: dict):
-    """Updates CoverUp's response cache."""
-    global cache
-    cache[key] = response
-
-    # a jsonl file
-    with CACHE_FILE.open("a") as f:
-        f.write(json.dumps({key: response}))
-        f.write("\n")
 
 
 test_seq = 1
@@ -470,32 +438,10 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
     sleep = 1
     while True:
         try:
-            if cache is not None:
-                key = json.dumps(completion)
-                # Execution-unique addresses may be present in error outputs,
-                # such as when objects are passed as arguments.
-                key = re.sub("object at 0x[0-9a-fA-F]+\\b", "object at ...", key)
+            if token_rate_limit:
+                await token_rate_limit.acquire(count_tokens(completion))
 
-                # Clean up differences due to temporary file names
-                key = re.sub(f"{PREFIX}_tmp_.+?\\.py\\b", f"{PREFIX}_tmp.py", key)
-
-                if not (response := cache.get(key, None)):
-                    if token_rate_limit:
-                        await token_rate_limit.acquire(count_tokens(completion))
-
-                    response = await openai.ChatCompletion.acreate(**completion)
-
-                    update_cache(key, response)
-                else:
-                    response['cached'] = True
-
-            else:
-                if token_rate_limit:
-                    await token_rate_limit.acquire(count_tokens(completion))
-
-                response = await openai.ChatCompletion.acreate(**completion)
-
-            return response
+            return await openai.ChatCompletion.acreate(**completion)
 
         except (openai.error.ServiceUnavailableError,
                 openai.error.RateLimitError,
@@ -618,9 +564,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         response_message = response["choices"][0]["message"]
         log_write(seg, response_message['content'])
 
-        if 'cached' not in response:
-            progress.add_usage(response['usage'])
-            log_write(seg, f"total usage: {progress.usage}")
+        progress.add_usage(response['usage'])
+        log_write(seg, f"total usage: {progress.usage}")
 
         messages.append(response_message)
 
@@ -705,8 +650,6 @@ if __name__ == "__main__":
     if not args.tests_dir.exists():
         print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
         sys.exit(1)
-
-    cache = load_cache() if args.cache else None
 
     if 'OPENAI_API_KEY' not in os.environ:
         print("Please place your OpenAI key in an environment variable named OPENAI_API_KEY and try again.")
