@@ -281,6 +281,12 @@ def measure_coverage(seg: CodeSegment, test: str):
     return cov["files"]
 
 
+def run_test_suite():
+    # throws subprocess.CalledProcessError in case of problems
+    subprocess.run((f"{sys.executable} -m pytest {args.tests_dir}").split(),
+                   check=True, capture_output=True)
+
+
 def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
@@ -609,28 +615,44 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 print(f"Still missing:      {list(now_missing_lines)}")
                 print(f"                    {list(now_missing_branches)}")
 
-            # XXX insist on len(now_missing) == 0 while saving best test?
-#            if len(now_missing_lines)+len(now_missing_branches) == 0:
-            if len(now_missing_lines)+len(now_missing_branches) < seg.missing_count():
-                # the test is good 'nough...
-                new_test = new_test_file()
-                new_test.write_text(f"# file {seg.identify()}\n" +\
-                                    f"# lines {sorted(seg.missing_lines)}\n" +\
-                                    f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
-                                    last_test)
-                log_write(seg, f"Saved as {new_test}\n")
-                progress.add_good()
-                break
-
-            messages.append({
-                "role": "user",
-                "content": f"""
+            # XXX insist on len(now_missing_lines)+len(now_missing_branches) == 0 ?
+            if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
+                messages.append({
+                    "role": "user",
+                    "content": f"""
 This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
 Modify it to correct that; respond only with the complete Python code in backticks.
 """
-            })
-            log_write(seg, messages[-1]['content'])
-            progress.add_useless()
+                })
+                log_write(seg, messages[-1]['content'])
+                progress.add_useless()
+                continue
+
+            # the test is good 'nough...
+            new_test = new_test_file()
+            new_test.write_text(f"# file {seg.identify()}\n" +\
+                                f"# lines {sorted(seg.missing_lines)}\n" +\
+                                f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
+                                last_test)
+
+            try:
+                run_test_suite()
+            except subprocess.CalledProcessError as e:
+                progress.add_failing()
+                print(f"Test for {seg.identify()} has side effects")
+                new_test.unlink()
+                messages.append({
+                    "role": "user",
+                    "content": "Executing the test along with the rest of the test suite yields an error, shown below.\n" +\
+                               "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
+                               clean_error(str(e.output, 'UTF-8'))
+                })
+                log_write(seg, messages[-1]['content'])
+                continue
+
+            log_write(seg, f"Saved as {new_test}\n")
+            progress.add_good()
+            break
 
         except subprocess.TimeoutExpired:
             log_write(seg, "measure_coverage timed out, giving up")
@@ -665,6 +687,12 @@ if __name__ == "__main__":
 
     if 'OPENAI_API_KEY' not in os.environ:
         print("Please place your OpenAI key in an environment variable named OPENAI_API_KEY and try again.")
+        sys.exit(1)
+
+    try:
+        run_test_suite()
+    except subprocess.CalledProcessError:
+        print("Running the test suite yields errors; please correct or silence them before running CoverUp.")
         sys.exit(1)
 
     openai.key=os.environ['OPENAI_API_KEY']
