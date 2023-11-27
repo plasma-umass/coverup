@@ -2,6 +2,7 @@ import coverup
 import pytest
 from hypothesis import given
 import hypothesis.strategies as st
+from pathlib import Path
 
 
 def test_format_ranges():
@@ -143,3 +144,10 @@ def test_missing_imports():
     assert not coverup.missing_imports(['ast', 'dis', 'sys'])
     assert not coverup.missing_imports([])
     assert coverup.missing_imports(['sys', 'idontexist'])
+
+
+def test_get_module_name():
+    assert 'flask.json.provider' == coverup.get_module_name(Path('src/flask/json/provider.py'), Path('src/flask'))
+    assert 'flask.json.provider' == coverup.get_module_name('src/flask/json/provider.py', 'src/flask')
+    assert 'flask.tool' == coverup.get_module_name('src/flask/tool.py', './tests/../src/flask')
+    assert None == coverup.get_module_name('src/flask/tool.py', './tests')

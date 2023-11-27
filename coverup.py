@@ -429,6 +429,16 @@ def missing_imports(modules: T.List[str]) -> bool:
     return any_missing
 
 
+def get_module_name(src_file: Path, src_dir: Path) -> str:
+    try:
+        src_file = Path(src_file)
+        src_dir = Path(src_dir)
+        relative = src_file.resolve().relative_to(src_dir.resolve())
+        return ".".join((src_dir.stem,) + relative.parts[:-1] + (relative.stem,))
+    except ValueError:
+        return None  # not relative to source
+
+
 token_rate_limit = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
     """Sends a GPT chat request, handling common failures and returning the response."""
@@ -525,9 +535,11 @@ async def improve_coverage(seg: CodeSegment) -> bool:
             return singular
         return plural if plural is not None else f"{singular}s"
 
+    module_name = get_module_name(seg.filename, args.source_dir)
+
     messages = [{"role": "user",
                  "content": f"""
-The code below, extracted from {seg.filename}, does not achieve full coverage:
+The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
 when tested, {seg.lines_branches_missing_do()} not execute.
 Create a new pytest test function that executes these missing lines/branches, always making
 sure that the new test is correct and indeed improves coverage.
@@ -543,7 +555,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 """
             }]
 
-    log_write(seg, messages[0]['content'])
+    log_write(seg, messages[0]['content'])  # initial prompt
 
     attempts = 0
 
