@@ -584,8 +584,12 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 The code below, extracted from {seg.filename}, does not achieve full coverage:
 when tested, {seg.lines_branches_missing_do()} not execute.
 Create a new pytest test function that executes these missing lines/branches, always making
-sure that the new test is correct and indeed improves coverage.  Always send entire Python
-test scripts when proposing a new test or correcting one you previously proposed.
+sure that the new test is correct and indeed improves coverage.
+Always send entire Python test scripts when proposing a new test or correcting one you
+previously proposed.
+Be sure to include assertions in the test that verify any applicable postconditions.
+Please also make VERY SURE to clean up after the test, so as not to affect tests ran after it
+in the same pytest execution.
 Respond ONLY with the Python code enclosed in backticks, without any explanation.
 ```python
 {seg.get_excerpt()}
