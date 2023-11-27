@@ -776,5 +776,6 @@ if __name__ == "__main__":
 
     modules_missing = [m for m in module_available if not module_available[m]]
     if modules_missing:
-        print("Some modules are missing; please install and re-run to continue.\n")
+        # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
+        print("Some modules may be missing; please install and re-run to continue.\n")
         print(f"Modules possibly missing: {', '.join(str(m) for m in modules_missing)}")
