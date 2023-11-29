@@ -103,6 +103,10 @@ def parse_args():
     ap.add_argument('--show-details', default=False,
                     action=argparse.BooleanOptionalAction,
                     help=f'show details of lines/branches after each response')
+
+    ap.add_argument('--check-for-side-effects', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help=f'whether to check for side effects; requires running the entire suite for each new test')
     return ap.parse_args()
 
 
@@ -635,20 +639,21 @@ Modify it to correct that; respond only with the complete Python code in backtic
                                 f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
                                 last_test)
 
-            try:
-                run_test_suite()
-            except subprocess.CalledProcessError as e:
-                progress.add_failing()
-                print(f"Test for {seg.identify()} has side effects")
-                new_test.unlink()
-                messages.append({
-                    "role": "user",
-                    "content": "Executing the test along with the rest of the test suite yields an error, shown below.\n" +\
-                               "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
-                               clean_error(str(e.output, 'UTF-8'))
-                })
-                log_write(seg, messages[-1]['content'])
-                continue
+            if args.check_for_side_effects:
+                try:
+                    run_test_suite()
+                except subprocess.CalledProcessError as e:
+                    progress.add_failing()
+                    print(f"Test for {seg.identify()} has side effects")
+                    new_test.unlink()
+                    messages.append({
+                        "role": "user",
+                        "content": "Executing the test along with the rest of the test suite yields an error, shown below.\n" +\
+                                   "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
+                                   clean_error(str(e.output, 'UTF-8'))
+                    })
+                    log_write(seg, messages[-1]['content'])
+                    continue
 
             log_write(seg, f"Saved as {new_test}\n")
             progress.add_good()
