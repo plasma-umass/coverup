@@ -69,6 +69,9 @@ def parse_args():
     ap.add_argument('cov_json', type=Path,
                     help='SlipCover JSON output file with coverage information')
 
+    ap.add_argument('source_files', type=Path, nargs='*',
+                    help='only process certain source file(s)')
+
     ap.add_argument('--model', type=str, default=DEFAULT_MODEL,
                     help='OpenAI model to use')
 
@@ -77,7 +80,7 @@ def parse_args():
                     help='directory where tests reside')
 
     # TODO derive this somehow?
-    ap.add_argument('--source-dir', type=str, default='src',
+    ap.add_argument('--source-dir', type=Path, default='src',
                     help='directory where sources reside')
 
     ap.add_argument('--checkpoint', default=True,
@@ -86,9 +89,6 @@ def parse_args():
 
     ap.add_argument('--line-limit', type=int, default=50,
                     help='attempt to keep code segment(s) at or below this limit')
-
-    ap.add_argument('--only-file', type=str,
-                    help='only process segments for the given source file')
 
     ap.add_argument('--rate-limit', type=int,
                     help='max. tokens/minute to send in prompts')
@@ -107,6 +107,13 @@ def parse_args():
     ap.add_argument('--check-for-side-effects', default=True,
                     action=argparse.BooleanOptionalAction,
                     help=f'whether to check for side effects; requires running the entire suite for each new test')
+
+    ap.add_argument('--log-file', default=f"{PREFIX}-log",
+                    help='log file to use')
+
+    ap.add_argument('--pytest-args', type=str, default='',
+                    help='extra arguments to pass to pytest')
+
     return ap.parse_args()
 
 
@@ -258,7 +265,7 @@ def log_write(seg: CodeSegment, m: str) -> None:
 
     global log_file
     if not log_file:
-        log_file = open(PREFIX + "-log", "a", buffering=1)    # 1 = line buffered
+        log_file = open(args.log_file, "a", buffering=1)    # 1 = line buffered
 
     log_file.write(f"---- {seg.identify()} ----\n{m}\n")
 
@@ -277,7 +284,7 @@ def measure_coverage(seg: CodeSegment, test: str):
         with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
             # -qq to cut down on tokens
             p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
-                                f"-m pytest -qq {t.name}").split(),
+                                f"-m pytest {args.pytest_args} -qq {t.name}").split(),
                                check=True, capture_output=True, timeout=60)
             log_write(seg, str(p.stdout, 'UTF-8'))
             cov = json.load(j)
@@ -287,7 +294,7 @@ def measure_coverage(seg: CodeSegment, test: str):
 
 def run_test_suite():
     # throws subprocess.CalledProcessError in case of problems
-    subprocess.run((f"{sys.executable} -m pytest {args.tests_dir}").split(),
+    subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} {args.tests_dir}").split(),
                    check=True, capture_output=True)
 
 
@@ -472,15 +479,16 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             print(f"{str(e)}; waiting {sleep_time:.1f}s")
             await asyncio.sleep(sleep_time)
 
-        except openai.error.APIConnectionError as e:
-            # usually a server-side error... just retry
-            print(e)
-
         except openai.error.InvalidRequestError as e:
             # usually "maximum context length" XXX check for this?
             log_write(seg, f"Received {e}")
             print(e)
             return None
+
+        except (openai.error.APIConnectionError,
+                openai.error.APIError) as e:
+            # usually a server-side error... just retry
+            print(e)
 
 
 class Progress:
@@ -743,10 +751,10 @@ if __name__ == "__main__":
     worklist = []
     seg_done_count = 0
     for seg in segments:
-        if not seg.filename.startswith(args.source_dir):
+        if not args.source_dir in Path(seg.filename).parents:
             continue
 
-        if args.only_file and args.only_file not in seg.filename:
+        if args.source_files and all(seg.filename not in str(s) for s in args.source_files):
             continue
 
         if (seg.begin, seg.end) in done[seg.filename]:
