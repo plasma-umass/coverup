@@ -1,5 +1,6 @@
 asyncio
-openai
+openai==0.28
 tiktoken
 aiolimiter
 tqdm
+llm_utils
