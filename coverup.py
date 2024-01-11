@@ -600,10 +600,10 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         messages.append(response_message)
 
         if '```python' in response_message['content']:
-            import re
-            m = re.search('^```python(.*?)^```$', response_message['content'], re.M|re.S)
-            if m:
-                last_test = m.group(1)
+            # This regex accepts a truncated code block... this seems fine since we'll try it anyway
+            m = re.search('^```python(.*?)(?:^```|$)', response_message['content'], re.M|re.S)
+            if not m: raise Exception("Unable to extract Python code from response")
+            last_test = m.group(1)
         else:
             log_write(seg, "No Python code in GPT response, giving up")
             break
