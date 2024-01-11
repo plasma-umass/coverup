@@ -434,7 +434,7 @@ def find_imports(python_code: str) -> T.List[str]:
 
 
 module_available = dict()
-def missing_imports(modules: T.List[str]) -> bool:
+def missing_imports(modules: T.List[str]) -> T.List[str]:
     import importlib
 
     for module in modules:
@@ -453,20 +453,21 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
     all_ok = True
     for module in modules:
         try:
+            # FIXME we probably want to limit the module(s) installed to an "approved" list
             p = subprocess.run((f"{sys.executable} -m pip install {module}").split(),
                                check=True, capture_output=True, timeout=60)
             module_available[module] = 2    # originally unavailable, but now added
-            print("Installed module {module}")
-            log_write(seg, "Installed module {module}")
+            print(f"Installed module {module}")
+            log_write(seg, f"Installed module {module}")
         except subprocess.CalledProcessError as e:
-            log_write(seg, "Unable to install module {module}: {e}")
+            log_write(seg, f"Unable to install module {module}:\n{e.output}")
             all_ok = False
 
     return all_ok
 
 
-def get_required_modules() -> List[str]:
-    """Returns a list of the modules originally missing (even if they were installed)"""
+def get_required_modules() -> T.List[str]:
+    """Returns a list of the modules originally missing (i.e., even if we installed them)"""
     return [m for m in module_available if module_available[m] != 1]
 
 
@@ -625,8 +626,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         if '```python' in response_message['content']:
             # This regex accepts a truncated code block... this seems fine since we'll try it anyway
-            m = re.search('^```python(.*?)(?:^```|$)', response_message['content'], re.M|re.S)
-            if not m: raise Exception("Unable to extract Python code from response")
+            m = re.search('^```python(.*?)(?:^```)$', response_message['content'], re.M|re.S)
+            if not m: raise RuntimeError("Unable to extract Python code from response")
             last_test = m.group(1)
         else:
             log_write(seg, "No Python code in GPT response, giving up")
