@@ -114,6 +114,13 @@ def parse_args():
     ap.add_argument('--pytest-args', type=str, default='',
                     help='extra arguments to pass to pytest')
 
+    ap.add_argument('--install-missing-modules', default=False,
+                    action=argparse.BooleanOptionalAction,
+                    help='attempt to install any missing modules')
+
+    ap.add_argument('--write-requirements-to', type=Path,
+                    help='append the name of any missing modules to the given file')
+
     return ap.parse_args()
 
 
@@ -430,20 +437,37 @@ module_available = dict()
 def missing_imports(modules: T.List[str]) -> bool:
     import importlib
 
-    any_missing = False
-
     for module in modules:
         if module not in module_available:
             try:
+                # FIXME insulate by running on a separate invocation of Python
                 importlib.import_module(module)
-                module_available[module] = True
+                module_available[module] = 1    # available
             except ImportError:
-                module_available[module] = False
+                module_available[module] = 0    # missing
 
-        if not module_available[module]:
-            any_missing = True
+    return [m for m in modules if not module_available[m]]
 
-    return any_missing
+
+def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool: 
+    all_ok = True
+    for module in modules:
+        try:
+            p = subprocess.run((f"{sys.executable} -m pip install {module}").split(),
+                               check=True, capture_output=True, timeout=60)
+            module_available[module] = 2    # originally unavailable, but now added
+            print("Installed module {module}")
+            log_write(seg, "Installed module {module}")
+        except subprocess.CalledProcessError as e:
+            log_write(seg, "Unable to install module {module}: {e}")
+            all_ok = False
+
+    return all_ok
+
+
+def get_required_modules() -> List[str]:
+    """Returns a list of the modules originally missing (even if they were installed)"""
+    return [m for m in module_available if module_available[m] != 1]
 
 
 def get_module_name(src_file: Path, src_dir: Path) -> str:
@@ -608,8 +632,9 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             log_write(seg, "No Python code in GPT response, giving up")
             break
 
-        if missing_imports(find_imports(last_test)):
-            return False # not finished: needs a missing module
+        if missing := missing_imports(find_imports(last_test)):
+            if not args.install_missing_modules or not install_missing_imports(seg, missing):
+                return False # not finished: needs a missing module
 
         try:
             result = measure_coverage(seg, last_test)
@@ -770,8 +795,10 @@ if __name__ == "__main__":
 
     progress.close()
 
-    modules_missing = [m for m in module_available if not module_available[m]]
-    if modules_missing:
+    if required := get_required_modules():
         # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
-        print("Some modules may be missing; please install and re-run to continue.\n")
-        print(f"Modules possibly missing: {', '.join(str(m) for m in modules_missing)}")
+        print(f"Some modules seem missing:  {', '.join(str(m) for m in required)}")
+        if args.write_requirements_to:
+            with args.write_requirements_to.open("a") as f:
+                for module in required:
+                    f.write(f"{module}\n")
