@@ -75,6 +75,9 @@ def parse_args():
     ap.add_argument('--model', type=str, default=DEFAULT_MODEL,
                     help='OpenAI model to use')
 
+    ap.add_argument('--model-temperature', type=str, default=0,
+                    help='Model "temperature" to use')
+
     # TODO derive this somehow?
     ap.add_argument('--tests-dir', type=Path, default='tests',
                     help='directory where tests reside')
@@ -442,8 +445,12 @@ def missing_imports(modules: T.List[str]) -> T.List[str]:
             try:
                 # FIXME insulate by running on a separate invocation of Python
                 importlib.import_module(module)
+#                # run on a separate process to insulate from our execution
+#                p = subprocess.run((f"{sys.executable} -c \"import {module}\"").split(),
+#                                   check=True, capture_output=True, timeout=60)
                 module_available[module] = 1    # available
-            except ImportError:
+#            except subprocess.CalledProcessError:
+            except (ImportError, Exception):
                 module_available[module] = 0    # missing
 
     return [m for m in modules if not module_available[m]]
@@ -612,7 +619,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         attempts += 1
 
-        if not (response := await do_chat(seg, {'model': args.model, 'messages': messages, 'temperature': 0})):
+        if not (response := await do_chat(seg, {'model': args.model, 'messages': messages,
+                                                'temperature': args.model_temperature})):
             log_write(seg, "giving up")
             break
 
