@@ -438,20 +438,12 @@ def find_imports(python_code: str) -> T.List[str]:
 
 module_available = dict()
 def missing_imports(modules: T.List[str]) -> T.List[str]:
-    import importlib
+    import importlib.util
 
     for module in modules:
         if module not in module_available:
-            try:
-                # FIXME insulate by running on a separate invocation of Python
-                importlib.import_module(module)
-#                # run on a separate process to insulate from our execution
-#                p = subprocess.run((f"{sys.executable} -c \"import {module}\"").split(),
-#                                   check=True, capture_output=True, timeout=60)
-                module_available[module] = 1    # available
-#            except subprocess.CalledProcessError:
-            except (ImportError, Exception):
-                module_available[module] = 0    # missing
+            spec = importlib.util.find_spec(module)
+            module_available[module] = 0 if spec is None else 1
 
     return [m for m in modules if not module_available[m]]
 
