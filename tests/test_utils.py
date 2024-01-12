@@ -151,3 +151,23 @@ def test_get_module_name():
     assert 'flask.json.provider' == coverup.get_module_name('src/flask/json/provider.py', 'src/flask')
     assert 'flask.tool' == coverup.get_module_name('src/flask/tool.py', './tests/../src/flask')
     assert None == coverup.get_module_name('src/flask/tool.py', './tests')
+
+def test_extract_python():
+    assert "foo()\nbar()\n" == coverup.extract_python("""\
+```python
+foo()
+bar()
+```
+""")
+
+    assert "foo()\nbar()\n" == coverup.extract_python("""\
+```python
+foo()
+bar()
+```""")
+
+    assert "foo()\nbar()\n" == coverup.extract_python("""\
+```python
+foo()
+bar()
+""")

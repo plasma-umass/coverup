@@ -567,6 +567,13 @@ class Progress:
         self.bar.close()
 
 
+def extract_python(response: str) -> str:
+    # This regex accepts a truncated code block... this seems fine since we'll try it anyway
+    m = re.search('^```python\n(.*?\n)(```\n?)?$', response, re.M|re.S)
+    if not m: raise RuntimeError(f"Unable to extract Python code from response {response}")
+    return m.group(1)
+
+
 progress = None
 async def improve_coverage(seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
@@ -625,10 +632,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         messages.append(response_message)
 
         if '```python' in response_message['content']:
-            # This regex accepts a truncated code block... this seems fine since we'll try it anyway
-            m = re.search('^```python(.*?)(?:^```)$', response_message['content'], re.M|re.S)
-            if not m: raise RuntimeError("Unable to extract Python code from response")
-            last_test = m.group(1)
+            last_test = extract_python(response_message['content'])
         else:
             log_write(seg, "No Python code in GPT response, giving up")
             break
