@@ -497,6 +497,8 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
         except (openai.error.ServiceUnavailableError,
                 openai.error.RateLimitError,
                 openai.error.Timeout) as e:
+            if 'You exceeded your current quota' in str(e): # The service doesn't seem to ever recover from this
+                raise e
             import random
             sleep = min(sleep*2, args.max_backoff)
             sleep_time = random.uniform(sleep/2, sleep)
@@ -569,7 +571,7 @@ class Progress:
 
 def extract_python(response: str) -> str:
     # This regex accepts a truncated code block... this seems fine since we'll try it anyway
-    m = re.search('^```python\n(.*?\n)(```\n?)?$', response, re.M|re.S)
+    m = re.search(r'```python\n(.*?)(?:```|\Z)', response, re.DOTALL)
     if not m: raise RuntimeError(f"Unable to extract Python code from response {response}")
     return m.group(1)
 

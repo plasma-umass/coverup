@@ -153,21 +153,24 @@ def test_get_module_name():
     assert None == coverup.get_module_name('src/flask/tool.py', './tests')
 
 def test_extract_python():
-    assert "foo()\nbar()\n" == coverup.extract_python("""\
+    assert "foo()\n\nbar()\n" == coverup.extract_python("""\
 ```python
 foo()
+
 bar()
 ```
 """)
 
-    assert "foo()\nbar()\n" == coverup.extract_python("""\
+    assert "foo()\n\nbar()\n" == coverup.extract_python("""\
 ```python
 foo()
+
 bar()
 ```""")
 
-    assert "foo()\nbar()\n" == coverup.extract_python("""\
+    assert "foo()\n\nbar()\n" == coverup.extract_python("""\
 ```python
 foo()
+
 bar()
 """)
