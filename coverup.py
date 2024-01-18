@@ -286,7 +286,7 @@ def log_write(seg: CodeSegment, m: str) -> None:
     if not log_file:
         log_file = open(args.log_file, "a", buffering=1)    # 1 = line buffered
 
-    log_file.write(f"---- {seg} ----\n{m}\n")
+    log_file.write(f"---- {datetime.now().isoformat(timespec='seconds')} {seg} ----\n{m}\n")
 
 
 def measure_coverage(seg: CodeSegment, test: str):
@@ -488,43 +488,6 @@ def get_module_name(src_file: Path, src_dir: Path) -> str:
         return None  # not relative to source
 
 
-token_rate_limit = None
-async def do_chat(seg: CodeSegment, completion: dict) -> str:
-    """Sends a GPT chat request, handling common failures and returning the response."""
-
-    global token_rate_limit
-
-    sleep = 1
-    while True:
-        try:
-            if token_rate_limit:
-                await token_rate_limit.acquire(count_tokens(completion))
-
-            return await openai.ChatCompletion.acreate(**completion)
-
-        except (openai.error.ServiceUnavailableError,
-                openai.error.RateLimitError,
-                openai.error.Timeout) as e:
-            if 'You exceeded your current quota' in str(e): # The service doesn't seem to ever recover from this
-                raise e
-            import random
-            sleep = min(sleep*2, args.max_backoff)
-            sleep_time = random.uniform(sleep/2, sleep)
-            print(f"{str(e)}; waiting {sleep_time:.1f}s")
-            await asyncio.sleep(sleep_time)
-
-        except openai.error.InvalidRequestError as e:
-            # usually "maximum context length" XXX check for this?
-            log_write(seg, f"Received {e}")
-            print(e)
-            return None
-
-        except (openai.error.APIConnectionError,
-                openai.error.APIError) as e:
-            # usually a server-side error... just retry
-            print(e)
-
-
 class Progress:
     """Tracks progress, showing a tqdm-based bar."""
 
@@ -538,6 +501,7 @@ class Progress:
         self.postfix['G'] = 0
         self.postfix['F'] = 0
         self.postfix['U'] = 0
+        self.postfix['R'] = 0
 
         self.bar = tqdm.tqdm(total=total, initial=initial)
         self.bar.set_postfix(ordered_dict=self.postfix)
@@ -568,6 +532,11 @@ class Progress:
         self.postfix['G'] += 1
         self.bar.set_postfix(ordered_dict=self.postfix)
 
+    def add_retry(self):
+        """Signals a request retry."""
+        self.postfix['R'] += 1
+        self.bar.set_postfix(ordered_dict=self.postfix)
+
     def update(self):
         """Signals an item completed."""
         self.bar.update()
@@ -577,6 +546,50 @@ class Progress:
         self.bar.close()
 
 
+token_rate_limit = None
+progress = None
+async def do_chat(seg: CodeSegment, completion: dict) -> str:
+    """Sends a GPT chat request, handling common failures and returning the response."""
+
+    global token_rate_limit
+
+    sleep = 1
+    while True:
+        try:
+            if token_rate_limit:
+                await token_rate_limit.acquire(count_tokens(completion))
+
+            return await openai.ChatCompletion.acreate(**completion)
+
+        except (openai.error.ServiceUnavailableError,
+                openai.error.RateLimitError,
+                openai.error.Timeout) as e:
+
+            # This message usually indicates out of money in account
+            if 'You exceeded your current quota' in str(e):
+                log_write(seg, f"Failed: {type(e)} {e}")
+                raise e
+
+            log_write(seg, f"Error: {type(e)} {e}")
+
+            import random
+            sleep = min(sleep*2, args.max_backoff)
+            sleep_time = random.uniform(sleep/2, sleep)
+            progress.signal_retry()
+            await asyncio.sleep(sleep_time)
+
+        except openai.error.InvalidRequestError as e:
+            # usually "maximum context length" XXX check for this?
+            log_write(seg, f"Error: {type(e)} {e}")
+            return None # gives up this segment
+
+        except (openai.error.APIConnectionError,
+                openai.error.APIError) as e:
+            log_write(seg, f"Error: {type(e)} {e}")
+            # usually a server-side error... just retry right away
+            progress.signal_retry()
+
+
 def extract_python(response: str) -> str:
     # This regex accepts a truncated code block... this seems fine since we'll try it anyway
     m = re.search(r'```python\n(.*?)(?:```|\Z)', response, re.DOTALL)
@@ -584,7 +597,6 @@ def extract_python(response: str) -> str:
     return m.group(1)
 
 
-progress = None
 async def improve_coverage(seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
     global args, progress
@@ -733,7 +745,7 @@ if __name__ == "__main__":
         token_rate_limit = AsyncLimiter(*limit)
         # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
 
-    log_write('startup', f"Date: {datetime.now().isoformat()}\nCommand: {' '.join(sys.argv)}")
+    log_write('startup', f"Command: {' '.join(sys.argv)}")
 
     if not args.tests_dir.exists():
         print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
