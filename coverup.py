@@ -704,7 +704,6 @@ Modify it to correct that; respond only with the complete Python code in backtic
                     run_test_suite()
                 except subprocess.CalledProcessError as e:
                     progress.add_failing()
-                    print(f"Test for {seg.identify()} has side effects")
                     new_test.unlink()
                     messages.append({
                         "role": "user",
