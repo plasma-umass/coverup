@@ -575,7 +575,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             import random
             sleep = min(sleep*2, args.max_backoff)
             sleep_time = random.uniform(sleep/2, sleep)
-            progress.signal_retry()
+            progress.add_retry()
             await asyncio.sleep(sleep_time)
 
         except openai.error.InvalidRequestError as e:
@@ -587,7 +587,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                 openai.error.APIError) as e:
             log_write(seg, f"Error: {type(e)} {e}")
             # usually a server-side error... just retry right away
-            progress.signal_retry()
+            progress.add_retry()
 
 
 def extract_python(response: str) -> str:
