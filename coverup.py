@@ -8,6 +8,8 @@ from pathlib import Path
 import typing as T
 import re
 import llm_utils
+import sys
+from datetime import datetime
 
 
 PREFIX = 'coverup'
@@ -106,6 +108,10 @@ def parse_args():
     ap.add_argument('--show-details', default=False,
                     action=argparse.BooleanOptionalAction,
                     help=f'show details of lines/branches after each response')
+
+    ap.add_argument('--initial-test-check', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help=f'run test suite at start, aborting in case of failure.')
 
     ap.add_argument('--check-for-side-effects', default=True,
                     action=argparse.BooleanOptionalAction,
@@ -236,6 +242,9 @@ class CodeSegment:
     def identify(self) -> str:
         return f"{self.filename}:{self.begin}-{self.end-1}"
 
+    def __str__(self) -> str:
+        return self.identify()
+
     def get_excerpt(self):
         excerpt = []
         with open(self.filename, "r") as src:
@@ -277,12 +286,11 @@ def log_write(seg: CodeSegment, m: str) -> None:
     if not log_file:
         log_file = open(args.log_file, "a", buffering=1)    # 1 = line buffered
 
-    log_file.write(f"---- {seg.identify()} ----\n{m}\n")
+    log_file.write(f"---- {seg} ----\n{m}\n")
 
 
 def measure_coverage(seg: CodeSegment, test: str):
     """Runs a given test and returns the coverage obtained."""
-    import sys
     import tempfile
     global args
 
@@ -717,7 +725,6 @@ Modify it to correct that; respond only with the complete Python code in backtic
 
 
 if __name__ == "__main__":
-    import sys
     args = parse_args()
 
     if args.rate_limit or token_rate_limit_for_model(args.model):
@@ -725,6 +732,8 @@ if __name__ == "__main__":
         from aiolimiter import AsyncLimiter
         token_rate_limit = AsyncLimiter(*limit)
         # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
+
+    log_write('startup', f"Date: {datetime.now().isoformat()}\nCommand: {' '.join(sys.argv)}")
 
     if not args.tests_dir.exists():
         print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
@@ -734,11 +743,12 @@ if __name__ == "__main__":
         print("Please place your OpenAI key in an environment variable named OPENAI_API_KEY and try again.")
         sys.exit(1)
 
-    try:
-        run_test_suite()
-    except subprocess.CalledProcessError:
-        print("Running the test suite yields errors; please correct or silence them before running CoverUp.")
-        sys.exit(1)
+    if args.initial_test_check:
+        try:
+            run_test_suite()
+        except subprocess.CalledProcessError:
+            print("Running the test suite yields errors; please correct or silence them before running CoverUp.")
+            sys.exit(1)
 
     openai.key=os.environ['OPENAI_API_KEY']
     if 'OPENAI_ORGANIZATION' in os.environ:
