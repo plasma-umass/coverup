@@ -132,6 +132,10 @@ def parse_args():
 
     return ap.parse_args()
 
+def test_file_path(test_seq: int) -> Path:
+    """Returns the Path for a test's file, given its sequence number."""
+    return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
+
 
 test_seq = 1
 def new_test_file():
@@ -140,7 +144,7 @@ def new_test_file():
     global test_seq, args
 
     while True:
-        p = args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
+        p = test_file_path(test_seq)
         try:
             p.touch(exist_ok=False)
             return p
@@ -310,9 +314,38 @@ def measure_coverage(seg: CodeSegment, test: str):
     return cov["files"]
 
 
+def run_test_with_others(test_file: Path):
+    """Runs a test and a few others together, looking for side effects."""
+    # For now, we just run the test, twice, along with a few others... would a random selection be better?
+    # 'test_file' is run first in the hope that will catch any undesirable side effects.
+    # We run it twice because if it leaves out something unclean, it may trip over that itself.
+
+    if not (m := re.match("_(\d+)$", test_file.name)):
+        raise RuntimeError(f"Unable to read test sequence number in \"{test_file}\"")
+    test_seq = int(m.group(1))
+
+    tests = [test_file, test_file]
+    for seq in range(max(1, test_seq-10), test_seq):
+        if len(tests) == 5: break
+
+        candidate = test_file_path(seq)
+        if candidate.exists():
+            tests.append(candidate)
+
+    tests = ' '.join(tests)
+    print("\ntrying to run {tests}")
+
+    # Throws subprocess.CalledProcessError in case of problems
+    # Throws TimeoutExpired if this takes too long; this is something to watch out for, as taking
+    #   too long may cause outstanding chat requests to fail.
+    subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} -x {tests}").split(),
+                   check=True, capture_output=True, timeout=120)
+
+
 def run_test_suite():
     # throws subprocess.CalledProcessError in case of problems
-    subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} {args.tests_dir}").split(),
+    # TODO this can take very long (>10 minutes). Watch out for outstanding requests timing out...
+    subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} -x {args.tests_dir}").split(),
                    check=True, capture_output=True)
 
 
@@ -701,7 +734,8 @@ Modify it to correct that; respond only with the complete Python code in backtic
 
             if args.check_for_side_effects:
                 try:
-                    run_test_suite()
+                    run_test_with_others(new_test)
+
                 except subprocess.CalledProcessError as e:
                     progress.add_failing()
                     new_test.unlink()
@@ -713,6 +747,9 @@ Modify it to correct that; respond only with the complete Python code in backtic
                     })
                     log_write(seg, messages[-1]['content'])
                     continue
+
+                except subprocess.TimeoutExpired as e:
+                    log_write(seg, f"Timed out running {new_test} with others, hope it's ok")
 
             log_write(seg, f"Saved as {new_test}\n")
             progress.add_good()
