@@ -744,8 +744,6 @@ if __name__ == "__main__":
         token_rate_limit = AsyncLimiter(*limit)
         # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
 
-    log_write('startup', f"Command: {' '.join(sys.argv)}")
-
     if not args.tests_dir.exists():
         print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
         sys.exit(1)
@@ -771,7 +769,7 @@ if __name__ == "__main__":
     checkpoint_file = Path(CKPT_FILE)
     done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
 
-    usage = None
+    ckpt = None
     if args.checkpoint:
         try:
             with checkpoint_file.open("r") as f:
@@ -779,11 +777,14 @@ if __name__ == "__main__":
                 assert ckpt['version'] == 1
                 for filename, done_list in ckpt['done'].items():
                     done[filename] = set(tuple(d) for d in done_list)
-                usage = ckpt['usage']
+                assert 'usage' in ckpt
         except json.decoder.JSONDecodeError:
             pass
         except FileNotFoundError:
             pass
+
+    log_write('startup', f"Command: {' '.join(sys.argv)}" +\
+                        (f"\nCheckpoint: True\nPrevious usage: {ckpt['usage']}" if ckpt else ""))
 
     async def work_segment(seg: CodeSegment) -> None:
         if await improve_coverage(seg):
@@ -818,7 +819,7 @@ if __name__ == "__main__":
     async def runit():
         await asyncio.gather(*worklist)
 
-    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, usage=usage)
+    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, usage=(ckpt['usage'] if ckpt else None))
     asyncio.run(runit())
 
     progress.close()
