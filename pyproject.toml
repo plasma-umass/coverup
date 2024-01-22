@@ -26,7 +26,7 @@ dependencies = [
 ]
 
 [project.scripts]
-coverup = "coverup.__main__:main"
+coverup = "coverup.coverup:main"
 
 [project.urls]
 "Homepage" = "https://github.com/plasma-umass/CoverUp"
