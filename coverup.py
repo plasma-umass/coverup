@@ -320,7 +320,7 @@ def run_test_with_others(test_file: Path):
     # 'test_file' is run first in the hope that will catch any undesirable side effects.
     # We run it twice because if it leaves out something unclean, it may trip over that itself.
 
-    if not (m := re.match("_(\d+)$", test_file.name)):
+    if not (m := re.search('_(\d+)$', test_file.stem)):
         raise RuntimeError(f"Unable to read test sequence number in \"{test_file}\"")
     test_seq = int(m.group(1))
 
@@ -332,7 +332,7 @@ def run_test_with_others(test_file: Path):
         if candidate.exists():
             tests.append(candidate)
 
-    tests = ' '.join(tests)
+    tests = ' '.join(str(t) for t in tests)
     print("\ntrying to run {tests}")
 
     # Throws subprocess.CalledProcessError in case of problems
@@ -693,6 +693,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             break
 
         if missing := missing_imports(find_imports(last_test)):
+            log_write(seg, f"Missing modules {' '.join(missing)}")
             if not args.install_missing_modules or not install_missing_imports(seg, missing):
                 return False # not finished: needs a missing module
 
@@ -756,8 +757,8 @@ Modify it to correct that; respond only with the complete Python code in backtic
             break
 
         except subprocess.TimeoutExpired:
-            log_write(seg, "measure_coverage timed out, giving up")
-            break
+            log_write(seg, "measure_coverage timed out")
+            return False  # try again next time
 
         except subprocess.CalledProcessError as e:
             progress.add_failing()
@@ -835,6 +836,7 @@ if __name__ == "__main__":
                         'version': 1,
                         'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
                         'usage': progress.usage
+                        # XXX save other status, such as G, F, etc. and missing modules
                     }, f)
 
         progress.update()
