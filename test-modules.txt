@@ -1,7 +1,7 @@
 # The modules below aren't required by CoverUp, but often by the generated tests.
 mock
 #unittest
-pytest-asyncio
+#pytest-asyncio
 pytest-datadir
 hypothesis
 responses
