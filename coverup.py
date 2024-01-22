@@ -333,7 +333,6 @@ def run_test_with_others(test_file: Path):
             tests.append(candidate)
 
     tests = ' '.join(str(t) for t in tests)
-    print("\ntrying to run {tests}")
 
     # Throws subprocess.CalledProcessError in case of problems
     # Throws TimeoutExpired if this takes too long; this is something to watch out for, as taking
