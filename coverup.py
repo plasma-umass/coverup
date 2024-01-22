@@ -700,65 +700,9 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         try:
             result = measure_coverage(seg, last_test)
 
-            new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
-            new_branches = set(tuple(b) for b in result[seg.filename]['executed_branches']) \
-                           if seg.filename in result else set()
-            now_missing_lines = seg.missing_lines - new_lines
-            now_missing_branches = seg.missing_branches - new_branches
-
-            if args.show_details:
-                print(seg.identify())
-                print(f"Originally missing: {list(seg.missing_lines)}")
-                print(f"                    {list(seg.missing_branches)}")
-                print(f"Still missing:      {list(now_missing_lines)}")
-                print(f"                    {list(now_missing_branches)}")
-
-            # XXX insist on len(now_missing_lines)+len(now_missing_branches) == 0 ?
-            if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
-                messages.append({
-                    "role": "user",
-                    "content": f"""
-This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
-Modify it to correct that; respond only with the complete Python code in backticks.
-"""
-                })
-                log_write(seg, messages[-1]['content'])
-                progress.add_useless()
-                continue
-
-            # the test is good 'nough...
-            new_test = new_test_file()
-            new_test.write_text(f"# file {seg.identify()}\n" +\
-                                f"# lines {sorted(seg.missing_lines)}\n" +\
-                                f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
-                                last_test)
-
-            if args.check_for_side_effects:
-                try:
-                    run_test_with_others(new_test)
-
-                except subprocess.CalledProcessError as e:
-                    progress.add_failing()
-                    new_test.unlink()
-                    messages.append({
-                        "role": "user",
-                        "content": "Executing the test along with the rest of the test suite yields an error, shown below.\n" +\
-                                   "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
-                                   clean_error(str(e.output, 'UTF-8'))
-                    })
-                    log_write(seg, messages[-1]['content'])
-                    continue
-
-                except subprocess.TimeoutExpired as e:
-                    log_write(seg, f"Timed out running {new_test} with others, hope it's ok")
-
-            log_write(seg, f"Saved as {new_test}\n")
-            progress.add_good()
-            break
-
         except subprocess.TimeoutExpired:
             log_write(seg, "measure_coverage timed out")
-            return False  # try again next time
+            return False # try again next time
 
         except subprocess.CalledProcessError as e:
             progress.add_failing()
@@ -769,6 +713,63 @@ Modify it to correct that; respond only with the complete Python code in backtic
                            clean_error(str(e.output, 'UTF-8'))
             })
             log_write(seg, messages[-1]['content'])
+            continue
+
+        new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
+        new_branches = set(tuple(b) for b in result[seg.filename]['executed_branches']) \
+                       if seg.filename in result else set()
+        now_missing_lines = seg.missing_lines - new_lines
+        now_missing_branches = seg.missing_branches - new_branches
+
+        if args.show_details:
+            print(seg.identify())
+            print(f"Originally missing: {list(seg.missing_lines)}")
+            print(f"                    {list(seg.missing_branches)}")
+            print(f"Still missing:      {list(now_missing_lines)}")
+            print(f"                    {list(now_missing_branches)}")
+
+        # XXX insist on len(now_missing_lines)+len(now_missing_branches) == 0 ?
+        if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
+            messages.append({
+                "role": "user",
+                "content": f"""
+This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
+Modify it to correct that; respond only with the complete Python code in backticks.
+"""
+            })
+            log_write(seg, messages[-1]['content'])
+            progress.add_useless()
+            continue
+
+        # the test is good 'nough...
+        new_test = new_test_file()
+        new_test.write_text(f"# file {seg.identify()}\n" +\
+                            f"# lines {sorted(seg.missing_lines)}\n" +\
+                            f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
+                            last_test)
+
+        if args.check_for_side_effects:
+            try:
+                run_test_with_others(new_test)
+
+            except subprocess.CalledProcessError as e:
+                progress.add_failing()
+                new_test.unlink()
+                messages.append({
+                    "role": "user",
+                    "content": "Executing the test along with the rest of the test suite yields an error, shown below.\n" +\
+                               "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
+                               clean_error(str(e.output, 'UTF-8'))
+                })
+                log_write(seg, messages[-1]['content'])
+                continue
+
+            except subprocess.TimeoutExpired as e:
+                log_write(seg, f"Timed out running {new_test} with others, hope it's ok")
+
+        log_write(seg, f"Saved as {new_test}\n")
+        progress.add_good()
+        break
 
     return True # finished
 
