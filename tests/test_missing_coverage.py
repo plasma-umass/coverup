@@ -1,5 +1,4 @@
 import coverup
-from coverup import CodeSegment
 from pathlib import Path
 import pytest
 
