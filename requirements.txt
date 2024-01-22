@@ -4,3 +4,4 @@ tiktoken
 aiolimiter
 tqdm
 llm_utils
+slipcover

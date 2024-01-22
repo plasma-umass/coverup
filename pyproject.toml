@@ -1,0 +1,32 @@
+[project]
+name = "CoverUp"
+description = "AI-powered test coverage improver"
+readme = "README.md"
+version = "0.1.0"
+authors = [
+    { name="Juan Altmayer Pizzorno", email="juan@altmayer.com" },
+    { name="Emery Berger", email="emery.berger@gmail.com" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux"
+]
+requires-python = ">=3.10"
+dependencies = [
+    "asyncio",
+    "openai==0.28",
+    "tiktoken",
+    "aiolimiter",
+    "tqdm",
+    "llm_utils",
+    "slipcover"
+]
+
+[project.scripts]
+coverup = "coverup.__main__:main"
+
+[project.urls]
+"Homepage" = "https://github.com/plasma-umass/CoverUp"
