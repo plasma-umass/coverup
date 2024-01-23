@@ -150,7 +150,7 @@ def measure_coverage(seg: CodeSegment, test: str):
         with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
             # -qq to cut down on tokens
             p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
-                                f"-m pytest {args.pytest_args} -qq {t.name}").split(),
+                                f"-m pytest {args.pytest_args} -qq --disable-warnings {t.name}").split(),
                                check=True, capture_output=True, timeout=60)
             log_write(seg, str(p.stdout, 'UTF-8'))
             cov = json.load(j)
