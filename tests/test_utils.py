@@ -1,9 +1,8 @@
-import coverup
 import pytest
-from hypothesis import given
-import hypothesis.strategies as st
+from hypothesis import given, strategies as st
 from pathlib import Path
 
+import coverup
 
 def test_format_ranges():
     assert "" == coverup.format_ranges(set(), set())
