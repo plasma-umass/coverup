@@ -55,7 +55,7 @@ class BadTestsFinder(DeltaDebugger):
         for p in (self.test_dir / "__pycache__").glob("conftest.*"):
             p.unlink()
 
-#        print(f"trying {list(p.name for p in test_set)}")
+        print(f"trying {list(p.name for p in test_set)}")
         with TemporaryOverwrite(self.test_dir / "conftest.py", self.make_conftest(test_set)):
             p = subprocess.run((f"{sys.executable} -m pytest --rootdir . -c /dev/null --disable-warnings {self.test_dir}").split(),
                                check=False, capture_output=True, timeout=60)

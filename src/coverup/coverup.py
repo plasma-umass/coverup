@@ -9,6 +9,7 @@ import sys
 from datetime import datetime
 from coverup.llm import *
 from coverup.segment import *
+from coverup.delta import BadTestsFinder
 
 
 PREFIX = 'coverup'
@@ -81,6 +82,10 @@ def parse_args():
 
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
+
+    ap.add_argument('--find-interfering-tests', default=False,
+                    action=argparse.BooleanOptionalAction,
+                    help='run test suite looking for which test(s) interfere with others')
 
     return ap.parse_args()
 
@@ -193,6 +198,23 @@ def run_test_suite():
     subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} -x {args.tests_dir}").split(),
                    check=True, capture_output=True)
 
+
+def find_interfering_tests():
+    print("running suite...")
+    p = subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} -qq --disable-warnings {args.tests_dir}").split(),
+                       check=False, capture_output=True)
+
+    if p.returncode == 0:
+        print("suite ok!")
+        return
+
+    if not (failed := BadTestsFinder.find_failed_test(str(p.stdout, 'UTF-8'))):
+        print("Unable to find which test failed. Output:\n" + str(p.stdout, 'UTF-8'))
+        return
+
+    btf = BadTestsFinder(args.tests_dir)
+    culprits = btf.find_culprit(failing_test)
+    print("Done! Culprit(s):  {list(p.name for p in culprits)}")
 
 
 def find_imports(python_code: str) -> T.List[str]:
@@ -520,6 +542,10 @@ def main():
 
     global args, token_rate_limit, progress
     args = parse_args()
+
+    if args.find_interfering_tests:
+        find_interfering_tests()
+        return
 
     if args.rate_limit or token_rate_limit_for_model(args.model):
         limit = (args.rate_limit, 60) if args.rate_limit else token_rate_limit_for_model(args.model)
