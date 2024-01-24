@@ -166,7 +166,7 @@ def run_test_with_others(test_file: Path):
 
     # TODO Running it twice like this can cause a RecursionError if pytest-asyncio is installed
 
-    if not (m := re.search('_(\d+)$', test_file.stem)):
+    if not (m := re.search('_(\\d+)$', test_file.stem)):
         raise RuntimeError(f"Unable to read test sequence number in \"{test_file}\"")
     test_seq = int(m.group(1))
 
