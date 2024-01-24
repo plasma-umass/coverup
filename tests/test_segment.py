@@ -1,6 +1,5 @@
-import coverup
 from pathlib import Path
-import pytest
+from coverup.segment import *
 
 
 class mockfs:
@@ -50,7 +49,7 @@ somecode_json = """\
 def test_basic():
     with mockfs({"tests/somecode.py": somecode_py,
                  "tests/somecode.json": somecode_json}):
-        segs = coverup.get_missing_coverage('tests/somecode.json', line_limit=2)
+        segs = get_missing_coverage('tests/somecode.json', line_limit=2)
 
         assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
         seg_names = [seg.name for seg in segs]
@@ -67,7 +66,7 @@ def test_basic():
 def test_coarse():
     with mockfs({"tests/somecode.py": somecode_py,
                  "tests/somecode.json": somecode_json}):
-        segs = coverup.get_missing_coverage('tests/somecode.json', line_limit=100)
+        segs = get_missing_coverage('tests/somecode.json', line_limit=100)
 
         assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
         seg_names = [seg.name for seg in segs]
@@ -98,7 +97,7 @@ def test_no_branch_coverage():
 """
     with mockfs({"tests/somecode.py": somecode_py,
                  "tests/somecode.json": somecode_json_no_branch}):
-        segs = coverup.get_missing_coverage('tests/somecode.json', line_limit=2)
+        segs = get_missing_coverage('tests/somecode.json', line_limit=2)
 
         assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
         assert ['__init__', 'foo', 'bar', 'globalDef2'] == [seg.name for seg in segs]
@@ -122,7 +121,7 @@ def test_all_missing():
 
     with mockfs({"tests/somecode.py": somecode_py,
                  "tests/somecode.json": somecode_json}):
-        segs = coverup.get_missing_coverage('tests/somecode.json', line_limit=3)
+        segs = get_missing_coverage('tests/somecode.json', line_limit=3)
 
 #        print("\n".join(str(s) for s in segs))
 
@@ -159,7 +158,7 @@ class Foo:
 }
 """
     with mockfs({"code.py": code_py, "code.json": code_json}):
-        segs = coverup.get_missing_coverage('code.json', line_limit=4)
+        segs = get_missing_coverage('code.json', line_limit=4)
 
         print("\n".join(str(s) for s in segs))
 
@@ -197,7 +196,7 @@ class Foo:
 }
 """
     with mockfs({"code.py": code_py, "code.json": code_json}):
-        segs = coverup.get_missing_coverage('code.json', line_limit=4)
+        segs = get_missing_coverage('code.json', line_limit=4)
 
         print("\n".join(str(s) for s in segs))
 
@@ -232,7 +231,7 @@ class Foo:
 }
 """
     with mockfs({"code.py": code_py, "code.json": code_json}):
-        segs = coverup.get_missing_coverage('code.json', line_limit=2)
+        segs = get_missing_coverage('code.json', line_limit=2)
 
         print("\n".join(str(s) for s in segs))
 
@@ -279,7 +278,7 @@ class Foo:
 }
 """
     with mockfs({"code.py": code_py, "code.json": code_json}):
-        segs = coverup.get_missing_coverage('code.json', line_limit=4)
+        segs = get_missing_coverage('code.json', line_limit=4)
 
         print("\n".join(str(s) for s in segs))
 
