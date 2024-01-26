@@ -66,10 +66,6 @@ def parse_args():
                     action=argparse.BooleanOptionalAction,
                     help=f'run test suite at start, aborting in case of failure.')
 
-    ap.add_argument('--check-for-side-effects', default=True,
-                    action=argparse.BooleanOptionalAction,
-                    help=f'whether to check for side effects; requires running the entire suite for each new test')
-
     ap.add_argument('--log-file', default=f"{PREFIX}-log",
                     help='log file to use')
 
@@ -162,35 +158,6 @@ def measure_coverage(seg: CodeSegment, test: str):
             cov = json.load(j)
 
     return cov["files"]
-
-
-def run_test_with_others(test_file: Path):
-    """Runs a test and a few others together, looking for side effects."""
-    # For now, we just run the test, twice, along with a few others... would a random selection be better?
-    # 'test_file' is run first in the hope that will catch any undesirable side effects.
-    # We run it twice because if it leaves out something unclean, it may trip over that itself.
-
-    # TODO Running it twice like this can cause a RecursionError if pytest-asyncio is installed
-
-    if not (m := re.search('_(\\d+)$', test_file.stem)):
-        raise RuntimeError(f"Unable to read test sequence number in \"{test_file}\"")
-    test_seq = int(m.group(1))
-
-    tests = [test_file, test_file]
-    for seq in range(max(1, test_seq-10), test_seq):
-        if len(tests) == 5: break
-
-        candidate = test_file_path(seq)
-        if candidate.exists():
-            tests.append(candidate)
-
-    tests = ' '.join(str(t) for t in tests)
-
-    # Throws subprocess.CalledProcessError in case of problems
-    # Throws TimeoutExpired if this takes too long; this is something to watch out for, as taking
-    #   too long may cause outstanding chat requests to fail.
-    subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} -x {tests}").split(),
-                   check=True, capture_output=True, timeout=120)
 
 
 def run_test_suite():
@@ -516,25 +483,6 @@ Modify it to correct that; respond only with the complete Python code in backtic
                             f"# lines {sorted(seg.missing_lines)}\n" +\
                             f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
                             last_test)
-
-        if args.check_for_side_effects:
-            try:
-                run_test_with_others(new_test)
-
-            except subprocess.CalledProcessError as e:
-                progress.add_failing()
-                new_test.unlink()
-                messages.append({
-                    "role": "user",
-                    "content": "Executing the test along with the rest of the test suite yields an error, shown below.\n" +\
-                               "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
-                               clean_error(str(e.output, 'UTF-8'))
-                })
-                log_write(seg, messages[-1]['content'])
-                continue
-
-            except subprocess.TimeoutExpired as e:
-                log_write(seg, f"Timed out running {new_test} with others, hope it's ok")
 
         log_write(seg, f"Saved as {new_test}\n")
         progress.add_good()
