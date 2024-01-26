@@ -50,6 +50,16 @@ def test_make_conftest(tmpdir):
     assert set(vars['collect_ignore']) == {str(p.name) for p in (all_tests - test_set)}
 
 
+def test_run_tests_no_tests(tmpdir):
+    test_dir = Path(tmpdir)
+
+    (test_dir / "test_foo.py").write_text("# no tests here")
+
+    btf = BadTestsFinder(test_dir, trace=print)
+    failed = btf.run_tests()
+    assert failed is None
+
+
 @pytest.mark.parametrize("existing_testconf", [True, False])
 @pytest.mark.parametrize("fail_load", [True, False])
 def test_find_culprit(tmpdir, existing_testconf, fail_load):

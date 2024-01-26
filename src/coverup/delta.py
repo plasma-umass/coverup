@@ -66,8 +66,12 @@ class DeltaDebugger(abc.ABC):
         return self.debug(c1, c2.union(rest), **kwargs).union(
                self.debug(c2, c1.union(rest), **kwargs))
 
+class RuntimeException(Exception):
+    pass
 
 class BadTestsFinder(DeltaDebugger):
+    """Finds tests that cause other tests to fail."""
+
     def __init__(self, test_dir: Path, *, pytest_args: str = '', trace = None):
         super(BadTestsFinder, self).__init__(trace=trace)
         self.test_dir = test_dir
@@ -91,6 +95,11 @@ class BadTestsFinder(DeltaDebugger):
         import sys
         import pytest
 
+        # TODO switch to hard_link version to leave any existing conftest.py in place (in case it exists)
+        # - create tmp directory
+        # - link all files (but those we're excluding) into it
+        # - run it
+
         test_set = tests_to_run if tests_to_run else self.all_tests
 
         # pytest loads 'conftest.py' like a module, and thus caches it...  If we modify it multiple
@@ -100,19 +109,24 @@ class BadTestsFinder(DeltaDebugger):
 
         if self.trace: self.trace(f"running {len(test_set)} test(s).")
         with TemporaryOverwrite(self.test_dir / "conftest.py", self.make_conftest(test_set)):
-            p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings --rootdir . {self.test_dir}").split(),
+            p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings --rootdir {self.test_dir} {self.test_dir}").split(),
                                check=False, capture_output=True, timeout=60*60)
 
-            if p.returncode == pytest.ExitCode.OK:
+            if p.returncode in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
                 if self.trace: self.trace(f"tests passed")
                 return None
 
             if not (first_failing := self.find_failed_test(str(p.stdout, 'UTF-8'))):
-                raise RuntimeError("Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n" + str(p.stdout, 'UTF-8'))
+                raise RuntimeException(f"Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n" +\
+                                       str(p.stdout, 'UTF-8') + "\n----\n")
+
+            if self.test_dir.is_absolute():
+                # pytest sometimes makes absolute paths into relative ones by adding ../../.. to root...
+                first_failing = first_failing.resolve()
 
             if self.trace: self.trace(f"tests rc={p.returncode} first_failing={first_failing}")
 
-            return self.test_dir / first_failing
+            return first_failing
 
 
     def test(self, test_set: set, **kwargs) -> bool:
