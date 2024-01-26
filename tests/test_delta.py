@@ -6,9 +6,10 @@ from coverup.delta import DeltaDebugger, BadTestsFinder
 
 class NumbersFinder(DeltaDebugger):
     def __init__(self, numbers: set):
+        super(NumbersFinder, self).__init__()
         self._numbers = numbers
 
-    def test(self, testset: set) -> bool:
+    def test(self, testset: set, *kwargs) -> bool:
         return self._numbers.issubset(testset)
 
 
@@ -50,7 +51,8 @@ def test_make_conftest(tmpdir):
 
 
 @pytest.mark.parametrize("existing_testconf", [True, False])
-def test_find_culprit(tmpdir, existing_testconf):
+@pytest.mark.parametrize("fail_load", [True, False])
+def test_find_culprit(tmpdir, existing_testconf, fail_load):
     test_dir = Path(tmpdir)
 
     def seq2p(seq):
@@ -61,15 +63,22 @@ def test_find_culprit(tmpdir, existing_testconf):
 
     all_tests = {seq2p(seq) for seq in range(10)}
     for t in all_tests:
-        t.write_text('def test_foo():\n    pass')
+        t.write_text('def test_foo(): pass')
 
     culprit = seq2p(3)
-    culprit.write_text('bad!!')
+    culprit.write_text("import sys\n" + "sys.hexversion=0")
 
-    seq2p(7).write_text('also bad!!') # but doesn't matter, as 6 is where we cut off below
+    failing = seq2p(6)
+    if fail_load:
+        failing.write_text("import sys\n" + "assert sys.hexversion != 0\n" + "def test_foo(): pass")
+    else:
+        failing.write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
 
-    btf = BadTestsFinder(test_dir)
-    assert {seq2p(3)} == btf.find_culprit(seq2p(6))
+    btf = BadTestsFinder(test_dir, trace=print)
+
+    assert not btf.test({failing})
+
+    assert {seq2p(3)} == btf.find_culprit(failing)
 
     if existing_testconf:
         assert (test_dir / "testconf.py").read_text() == "# my precious"
@@ -96,3 +105,57 @@ ERROR coverup-tests/test_coverup_906.py - ansible.errors.AnsibleError: Unable to
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 """
     assert Path("coverup-tests/test_coverup_906.py") == BadTestsFinder.find_failed_test(output)
+
+def test_find_failed_test_running():
+    # from python3 -m pytest -x -qq --disable-warnings coverup-tests
+    output = """\
+.................................................................................................................................................................................. [  9%]
+......................F
+======================================================================================== FAILURES ========================================================================================
+_____________________________________________________________________________ test_v2_runner_item_on_failed ______________________________________________________________________________
+
+callback_module = <ansible.plugins.callback.default.CallbackModule object at 0x7f90afb786d0>, task_result = <ansible.executor.task_result.TaskResult object at 0x7f90aeafbdc0>
+
+    def test_v2_runner_item_on_failed(callback_module, task_result):
+        with patch('ansible.plugins.callback.default.C') as mock_color:
+            mock_color.COLOR_ERROR = 'red'
+>           callback_module.v2_runner_item_on_failed(task_result)
+
+coverup-tests/test_coverup_1117.py:39: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+lib/ansible/plugins/callback/default.py:292: in v2_runner_item_on_failed
+    self._print_task_banner(result._task)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <ansible.plugins.callback.default.CallbackModule object at 0x7f90afb786d0>, task = TASK: fake_name
+
+    def _print_task_banner(self, task):
+        # args can be specified as no_log in several places: in the task or in
+        # the argument spec.  We can check whether the task is no_log but the
+        # argument spec can't be because that is only run on the target
+        # machine and we haven't run it thereyet at this time.
+        #
+        # So we give people a config option to affect display of the args so
+        # that they can secure this if they feel that their stdout is insecure
+        # (shoulder surfing, logging stdout straight to a file, etc).
+        args = ''
+        if not task.no_log and C.DISPLAY_ARGS_TO_STDOUT:
+            args = u', '.join(u'%s=%s' % a for a in task.args.items())
+            args = u' %s' % args
+    
+        prefix = self._task_type_cache.get(task._uuid, 'TASK')
+    
+        # Use cached task name
+        task_name = self._last_task_name
+        if task_name is None:
+            task_name = task.get_name().strip()
+    
+>       if task.check_mode and self.check_mode_markers:
+E       AttributeError: 'CallbackModule' object has no attribute 'check_mode_markers'
+
+lib/ansible/plugins/callback/default.py:211: AttributeError
+================================================================================ short test summary info =================================================================================
+FAILED coverup-tests/test_coverup_1117.py::test_v2_runner_item_on_failed - AttributeError: 'CallbackModule' object has no attribute 'check_mode_markers'
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+"""
+    assert Path("coverup-tests/test_coverup_1117.py") == BadTestsFinder.find_failed_test(output)

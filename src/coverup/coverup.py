@@ -83,9 +83,9 @@ def parse_args():
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
 
-    ap.add_argument('--find-interfering-tests', default=False,
+    ap.add_argument('--disable-interfering-tests', default=False,
                     action=argparse.BooleanOptionalAction,
-                    help='run test suite looking for which test(s) interfere with others')
+                    help='looks for tests causing others to fail and disable them.')
 
     return ap.parse_args()
 
@@ -103,11 +103,12 @@ def new_test_file():
 
     while True:
         p = test_file_path(test_seq)
-        try:
-            p.touch(exist_ok=False)
-            return p
-        except FileExistsError:
-            pass
+        if not (p.exists() or (p.parent / ("disabled_" + p.name)).exists()):
+            try:
+                p.touch(exist_ok=False)
+                return p
+            except FileExistsError:
+                pass
 
         test_seq += 1
 
@@ -199,22 +200,28 @@ def run_test_suite():
                    check=True, capture_output=True)
 
 
-def find_interfering_tests():
-    print("running suite...")
-    p = subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} -qq --disable-warnings {args.tests_dir}").split(),
-                       check=False, capture_output=True)
+def disable_interfering_tests():
+    while True:
+        print("running tests...")
+        btf = BadTestsFinder(args.tests_dir, pytest_args=args.pytest_args, trace=print)
+        failing_test = btf.run_tests()
 
-    if p.returncode == 0:
-        print("suite ok!")
-        return
+        if not failing_test:
+            print("tests ok!")
+            break
 
-    if not (failed := BadTestsFinder.find_failed_test(str(p.stdout, 'UTF-8'))):
-        print("Unable to find which test failed. Output:\n" + str(p.stdout, 'UTF-8'))
-        return
+        print(f"{failing_test} is failing, looking for culprit(s)...")
 
-    btf = BadTestsFinder(args.tests_dir)
-    culprits = btf.find_culprit(failing_test)
-    print("Done! Culprit(s):  {list(p.name for p in culprits)}")
+        if btf.run_tests({failing_test}) is not None:
+            print(f"{failing_test} fails by itself(!)")
+            culprits = {failing_test}
+
+        else:
+            culprits = btf.find_culprit(failing_test)
+
+        for c in culprits:
+            print(f"Disabling {c}")
+            c.rename(c.parent / ("disabled_" + c.name))
 
 
 def find_imports(python_code: str) -> T.List[str]:
@@ -543,8 +550,8 @@ def main():
     global args, token_rate_limit, progress
     args = parse_args()
 
-    if args.find_interfering_tests:
-        find_interfering_tests()
+    if args.disable_interfering_tests:
+        disable_interfering_tests()
         return
 
     if args.rate_limit or token_rate_limit_for_model(args.model):
@@ -627,6 +634,13 @@ def main():
             worklist.append(work_segment(seg))
 
     async def runit():
+#        semaphore = asyncio.Semaphore(30)
+#
+#        async def sem_coro(coro):
+#            async with semaphore:
+#                return await coro
+#
+#        await asyncio.gather(*(sem_coro(c) for c in worklist))
         await asyncio.gather(*worklist)
 
     progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, usage=(ckpt['usage'] if ckpt else None))
