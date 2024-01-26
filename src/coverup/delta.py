@@ -1,7 +1,6 @@
 import abc
 import typing as T
 from pathlib import Path
-from .utils import TemporaryOverwrite
 
 def compact(test_set):
     """Generates a (more) compact test name representation for debugging messages."""
@@ -75,15 +74,18 @@ class BadTestsFinder(DeltaDebugger):
     def __init__(self, test_dir: Path, *, pytest_args: str = '', trace = None):
         super(BadTestsFinder, self).__init__(trace=trace)
         self.test_dir = test_dir
-        self.all_tests = {p for p in test_dir.iterdir() if p.is_file() and
-                          (p.stem.startswith('test_') or p.stem.endswith('_test')) and p.suffix == '.py'}
+
+        def find_tests(p):
+            for f in p.iterdir():
+                if f.is_dir():
+                    yield from find_tests(f)
+                else:
+                    # TODO filter according to pytest customization rules
+                    if f.is_file() and (f.stem.startswith('test_') or f.stem.endswith('_test')) and f.suffix == '.py':
+                        yield f
+
+        self.all_tests = set(find_tests(self.test_dir))
         self.pytest_args = pytest_args
-
-
-    def make_conftest(self, test_set: set) -> str:
-        return "collect_ignore = [\n" +\
-                ',\n'.join(f"  '{p.name}'" for p in self.all_tests - test_set) + "\n" +\
-                "]\n"
 
 
     def run_tests(self, tests_to_run: set = None) -> Path:
@@ -95,21 +97,27 @@ class BadTestsFinder(DeltaDebugger):
         import sys
         import pytest
 
-        # TODO switch to hard_link version to leave any existing conftest.py in place (in case it exists)
-        # - create tmp directory
-        # - link all files (but those we're excluding) into it
-        # - run it
-
         test_set = tests_to_run if tests_to_run else self.all_tests
 
-        # pytest loads 'conftest.py' like a module, and thus caches it...  If we modify it multiple
-        # times in the same second, it may not notice it and use the cached version instead
-        for p in (self.test_dir / "__pycache__").glob("conftest.*"):
-            p.unlink()
+        def link_tree(src, dst):
+            dst.mkdir(parents=True, exist_ok=True)
+
+            for src_file in src.iterdir():
+                dst_file = dst / src_file.name
+
+                if src_file.is_dir():
+                    link_tree(src_file, dst_file)
+                else:
+                    if src_file not in self.all_tests or src_file in test_set:
+                        dst_file.hardlink_to(src_file)
 
         if self.trace: self.trace(f"running {len(test_set)} test(s).")
-        with TemporaryOverwrite(self.test_dir / "conftest.py", self.make_conftest(test_set)):
-            p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings --rootdir {self.test_dir} {self.test_dir}").split(),
+        with tempfile.TemporaryDirectory(dir=self.test_dir.parent) as tmpdir:
+            tmpdir = Path(tmpdir)
+            link_tree(self.test_dir, tmpdir)
+
+            p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings " +\
+                                f"--rootdir {tmpdir} {tmpdir}").split(),
                                check=False, capture_output=True, timeout=60*60)
 
             if p.returncode in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
@@ -120,9 +128,12 @@ class BadTestsFinder(DeltaDebugger):
                 raise RuntimeException(f"Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n" +\
                                        str(p.stdout, 'UTF-8') + "\n----\n")
 
-            if self.test_dir.is_absolute():
+            if tmpdir.is_absolute():
                 # pytest sometimes makes absolute paths into relative ones by adding ../../.. to root...
                 first_failing = first_failing.resolve()
+
+            # bring it back to its normal path
+            first_failing = self.test_dir / first_failing.relative_to(tmpdir)
 
             if self.trace: self.trace(f"tests rc={p.returncode} first_failing={first_failing}")
 

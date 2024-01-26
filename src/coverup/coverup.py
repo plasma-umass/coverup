@@ -76,6 +76,10 @@ def parse_args():
                     action=argparse.BooleanOptionalAction,
                     help='rather than try to add new tests, only look for tests causing others to fail and disable them.')
 
+    ap.add_argument('--debug', '-d', default=False,
+                    action=argparse.BooleanOptionalAction,
+                    help='print out debugging messages.')
+
     return ap.parse_args()
 
 
@@ -170,7 +174,7 @@ def measure_suite_coverage(test_dir: Path):
 def disable_interfering_tests():
     while True:
         print("running tests...")
-        btf = BadTestsFinder(args.tests_dir, pytest_args=args.pytest_args, trace=print)
+        btf = BadTestsFinder(args.tests_dir, pytest_args=args.pytest_args, trace=(print if args.debug else None))
         failing_test = btf.run_tests()
 
         if not failing_test:

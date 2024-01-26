@@ -25,31 +25,6 @@ def test_multiple(nums):
     assert {*nums} == nf.debug(set(range(51)))
 
 
-def test_make_conftest(tmpdir):
-    test_dir = Path(tmpdir)
-
-    def seq2p(seq):
-        return test_dir / f"test_coverup_{seq}.py"
-
-    all_tests = {seq2p(seq) for seq in range(10)}.union({test_dir / "not_our_test.py"})
-    for t in all_tests:
-        t.touch()
-
-    (test_dir / "something_else.py").touch()
-    (test_dir / "not_a_test.txt").touch()
-    (test_dir / "test_me_not.log").touch()
-    (test_dir / "README.md").touch()
-
-    test_set = {seq2p(seq) for seq in {3, 5, 7}}
-
-    btf = BadTestsFinder(test_dir)
-    conftest = btf.make_conftest(test_set)
-
-    vars = dict()
-    exec(compile(conftest,'','exec'), vars)
-    assert set(vars['collect_ignore']) == {str(p.name) for p in (all_tests - test_set)}
-
-
 def test_run_tests_no_tests(tmpdir):
     test_dir = Path(tmpdir)
 
@@ -58,6 +33,19 @@ def test_run_tests_no_tests(tmpdir):
     btf = BadTestsFinder(test_dir, trace=print)
     failed = btf.run_tests()
     assert failed is None
+
+
+def test_finds_tests_in_subdir(tmpdir):
+    test_dir = Path(tmpdir)
+
+    (test_dir / "test_foo.py").write_text("def test(): pass")
+    subdir = test_dir / "subdir"
+    subdir.mkdir()
+    test_in_subdir = (subdir / "test_bar.py")
+    test_in_subdir.write_text("def test(): pass")
+
+    btf = BadTestsFinder(test_dir, trace=print)
+    assert test_in_subdir in btf.all_tests
 
 
 @pytest.mark.parametrize("existing_testconf", [True, False])
