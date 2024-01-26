@@ -68,15 +68,11 @@ class CodeSegment:
 
 
 
-def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
+def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]:
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
     """
     import ast
-    import json
-
-    with open(jsonfile, "r") as f:
-        cov = json.load(f)
 
     code_segs = []
 
@@ -95,7 +91,7 @@ def get_missing_coverage(jsonfile, line_limit = 100) -> T.List[CodeSegment]:
                     return (node, begin, node.end_lineno+1) # +1 for range() style
 
 
-    for fname, fcov in cov['files'].items():
+    for fname, fcov in coverage['files'].items():
         with open(fname, "r") as src:
             tree = ast.parse(src.read(), fname)
 

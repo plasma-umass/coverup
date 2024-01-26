@@ -21,9 +21,6 @@ def parse_args():
     import argparse
     ap = argparse.ArgumentParser(prog='CoverUp',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    ap.add_argument('cov_json', type=Path,
-                    help='SlipCover JSON output file with coverage information')
-
     ap.add_argument('source_files', type=Path, nargs='*',
                     help='only process certain source file(s)')
 
@@ -62,10 +59,6 @@ def parse_args():
                     action=argparse.BooleanOptionalAction,
                     help=f'show details of lines/branches after each response')
 
-    ap.add_argument('--initial-test-check', default=True,
-                    action=argparse.BooleanOptionalAction,
-                    help=f'run test suite at start, aborting in case of failure.')
-
     ap.add_argument('--log-file', default=f"{PREFIX}-log",
                     help='log file to use')
 
@@ -79,9 +72,9 @@ def parse_args():
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
 
-    ap.add_argument('--disable-interfering-tests', default=False,
+    ap.add_argument('--only-disable-interfering-tests', default=False,
                     action=argparse.BooleanOptionalAction,
-                    help='looks for tests causing others to fail and disable them.')
+                    help='rather than try to add new tests, only look for tests causing others to fail and disable them.')
 
     return ap.parse_args()
 
@@ -160,11 +153,18 @@ def measure_coverage(seg: CodeSegment, test: str):
     return cov["files"]
 
 
-def run_test_suite():
-    # throws subprocess.CalledProcessError in case of problems
-    # TODO this can take very long (>10 minutes). Watch out for outstanding requests timing out...
-    subprocess.run((f"{sys.executable} -m pytest {args.pytest_args} -x {args.tests_dir}").split(),
-                   check=True, capture_output=True)
+def measure_suite_coverage(test_dir: Path):
+    """Runs a given test and returns the coverage obtained."""
+    import tempfile
+    global args
+
+    with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
+        # -qq to cut down on tokens
+        p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
+                            f"-m pytest {args.pytest_args} -qq --disable-warnings {test_dir}").split(),
+                           check=True, capture_output=True)
+#        log_write(seg, str(p.stdout, 'UTF-8'))
+        return json.load(j)
 
 
 def disable_interfering_tests():
@@ -498,7 +498,11 @@ def main():
     global args, token_rate_limit, progress
     args = parse_args()
 
-    if args.disable_interfering_tests:
+    if not args.tests_dir.exists():
+        print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
+        return 1
+
+    if args.only_disable_interfering_tests:
         disable_interfering_tests()
         return
 
@@ -508,33 +512,20 @@ def main():
         token_rate_limit = AsyncLimiter(*limit)
         # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
 
-    if not args.tests_dir.exists():
-        print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
-        sys.exit(1)
-
     if 'OPENAI_API_KEY' not in os.environ:
         print("Please place your OpenAI key in an environment variable named OPENAI_API_KEY and try again.")
-        sys.exit(1)
-
-    if args.initial_test_check:
-        try:
-            run_test_suite()
-        except subprocess.CalledProcessError:
-            print("Running the test suite yields errors; please correct or silence them before running CoverUp.")
-            sys.exit(1)
+        return 1
 
     openai.key=os.environ['OPENAI_API_KEY']
     if 'OPENAI_ORGANIZATION' in os.environ:
         openai.organization=os.environ['OPENAI_ORGANIZATION']
-
-    segments = sorted(get_missing_coverage(args.cov_json, line_limit=args.line_limit),
-                      key=lambda seg: seg.missing_count(), reverse=True)
 
     checkpoint_file = Path(CKPT_FILE)
     done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
 
     ckpt = None
     if args.checkpoint:
+        # XXX get coverage information from checkpoint
         try:
             with checkpoint_file.open("r") as f:
                 ckpt = json.load(f)
@@ -542,13 +533,48 @@ def main():
                 for filename, done_list in ckpt['done'].items():
                     done[filename] = set(tuple(d) for d in done_list)
                 assert 'usage' in ckpt
+                assert 'coverage' in ckpt, "coverage information missing in checkpoint"
+                print("Continuing from checkpoint.")
         except json.decoder.JSONDecodeError:
             pass
         except FileNotFoundError:
             pass
 
+    # --- (1) figure out initial coverage & segmentation ---
+
+    if ckpt:
+        coverage = ckpt['coverage']
+    else:
+        # TODO could offer --coverage-from
+        # with args.coverage_from.open() as f:
+        #     coverage = json.load(f)
+        try:
+            print("Measuring test suite coverage...")
+            coverage = measure_suite_coverage(args.tests_dir)
+        except subprocess.CalledProcessError as e:
+            print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8'))
+            return 1
+
+    segments = sorted(get_missing_coverage(coverage, line_limit=args.line_limit),
+                      key=lambda seg: seg.missing_count(), reverse=True)
+
     log_write('startup', f"Command: {' '.join(sys.argv)}" +\
                         (f"\nCheckpoint: True\nPrevious usage: {ckpt['usage']}" if ckpt else ""))
+
+    def save_checkpoint():
+        if args.checkpoint:
+            with checkpoint_file.open("w") as f:
+                json.dump({
+                    'version': 1,
+                    'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
+                    'usage': progress.usage,
+                    'coverage': coverage
+                    # XXX save other status, such as G, F, etc. and missing modules
+                }, f)
+
+    # --- (2) prompt for tests ---
+
+    print("Prompting for tests to increase coverage...")
 
     async def work_segment(seg: CodeSegment) -> None:
         if await improve_coverage(seg):
@@ -556,15 +582,7 @@ def main():
             # after installing any missing modules
             done[seg.filename].add((seg.begin, seg.end))
 
-            if args.checkpoint:
-                with checkpoint_file.open("w") as f:
-                    json.dump({
-                        'version': 1,
-                        'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
-                        'usage': progress.usage
-                        # XXX save other status, such as G, F, etc. and missing modules
-                    }, f)
-
+        save_checkpoint()
         progress.update()
 
     worklist = []
@@ -582,6 +600,7 @@ def main():
             worklist.append(work_segment(seg))
 
     async def runit():
+# TODO limit concurrency
 #        semaphore = asyncio.Semaphore(30)
 #
 #        async def sem_coro(coro):
@@ -592,9 +611,18 @@ def main():
         await asyncio.gather(*worklist)
 
     progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, usage=(ckpt['usage'] if ckpt else None))
-    asyncio.run(runit())
 
+    # if we didn't load a checkpoint, save it now, to save the effort of measuring coverage again
+    if not ckpt: save_checkpoint()
+
+    asyncio.run(runit())
     progress.close()
+
+    # --- (3) check resulting test suite ---
+
+    disable_interfering_tests()
+
+    # --- (4) final remarks ---
 
     if required := get_required_modules():
         # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
@@ -603,3 +631,5 @@ def main():
             with args.write_requirements_to.open("a") as f:
                 for module in required:
                     f.write(f"{module}\n")
+
+    return 0
