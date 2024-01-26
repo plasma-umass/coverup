@@ -69,11 +69,11 @@ class DeltaDebugger(abc.ABC):
 
 class BadTestsFinder(DeltaDebugger):
     def __init__(self, test_dir: Path, *, pytest_args: str = '', trace = None):
+        super(BadTestsFinder, self).__init__(trace=trace)
         self.test_dir = test_dir
         self.all_tests = {p for p in test_dir.iterdir() if p.is_file() and
                           (p.stem.startswith('test_') or p.stem.endswith('_test')) and p.suffix == '.py'}
         self.pytest_args = pytest_args
-        self.trace = trace
 
 
     def make_conftest(self, test_set: set) -> str:
@@ -98,6 +98,7 @@ class BadTestsFinder(DeltaDebugger):
         for p in (self.test_dir / "__pycache__").glob("conftest.*"):
             p.unlink()
 
+        if self.trace: self.trace(f"running {len(test_set)} test(s).")
         with TemporaryOverwrite(self.test_dir / "conftest.py", self.make_conftest(test_set)):
             p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings --rootdir . {self.test_dir}").split(),
                                check=False, capture_output=True, timeout=60*60)
@@ -106,11 +107,8 @@ class BadTestsFinder(DeltaDebugger):
                 if self.trace: self.trace(f"tests passed")
                 return None
 
-            if p.returncode != pytest.ExitCode.TESTS_FAILED:
-                raise RuntimeError(f"Unexpected pytest return code ({p.returncode}). Output:\n" + str(p.stdout, 'UTF-8'))
-
             if not (first_failing := self.find_failed_test(str(p.stdout, 'UTF-8'))):
-                raise RuntimeError("Unable to parse failing test out of pytest output. Output:\n" + str(p.stdout, 'UTF-8'))
+                raise RuntimeError("Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n" + str(p.stdout, 'UTF-8'))
 
             if self.trace: self.trace(f"tests rc={p.returncode} first_failing={first_failing}")
 
@@ -118,8 +116,6 @@ class BadTestsFinder(DeltaDebugger):
 
 
     def test(self, test_set: set, **kwargs) -> bool:
-        if self.trace: self.trace(f"trying with {len(test_set)} test(s).")
-
         if first_failing := self.run_tests(test_set):
             # If given, check that it's target_test that failed: a different test may have failed.
             # If a test that comes after target_test fails, then this is really a success; but if it's a test

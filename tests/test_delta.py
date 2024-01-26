@@ -6,7 +6,7 @@ from coverup.delta import DeltaDebugger, BadTestsFinder
 
 class NumbersFinder(DeltaDebugger):
     def __init__(self, numbers: set):
-        super(NumbersFinder, self).__init__()
+        super(NumbersFinder, self).__init__(trace=print)
         self._numbers = numbers
 
     def test(self, testset: set, *kwargs) -> bool:
