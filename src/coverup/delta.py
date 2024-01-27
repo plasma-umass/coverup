@@ -111,6 +111,8 @@ class BadTestsFinder(DeltaDebugger):
                     if src_file not in self.all_tests or src_file in test_set:
                         dst_file.hardlink_to(src_file)
 
+        assert self.test_dir.parent != self.test_dir # we need a parent directory
+
         if self.trace: self.trace(f"running {len(test_set)} test(s).")
         with tempfile.TemporaryDirectory(dir=self.test_dir.parent) as tmpdir:
             tmpdir = Path(tmpdir)
@@ -118,7 +120,7 @@ class BadTestsFinder(DeltaDebugger):
 
             p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings " +\
                                 f"--rootdir {tmpdir} {tmpdir}").split(),
-                               check=False, capture_output=True, timeout=60*60)
+                               check=False, capture_output=True, timeout=2*60*60)
 
             if p.returncode in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
                 if self.trace: self.trace(f"tests passed")
