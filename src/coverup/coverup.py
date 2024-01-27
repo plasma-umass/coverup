@@ -17,7 +17,7 @@ CKPT_FILE = PREFIX + "-ckpt.json"
 DEFAULT_MODEL='gpt-4-1106-preview'
 
 
-def parse_args():
+def parse_args(args=None):
     import argparse
     ap = argparse.ArgumentParser(prog='CoverUp',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -80,7 +80,7 @@ def parse_args():
                     action=argparse.BooleanOptionalAction,
                     help='print out debugging messages.')
 
-    return ap.parse_args()
+    return ap.parse_args(args)
 
 
 def test_file_path(test_seq: int) -> Path:
@@ -160,13 +160,18 @@ def measure_coverage(seg: CodeSegment, test: str):
 def measure_suite_coverage(test_dir: Path):
     """Runs a given test and returns the coverage obtained."""
     import tempfile
+    import pytest
     global args
 
     with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
         # -qq to cut down on tokens
         p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
                             f"-m pytest {args.pytest_args} -qq --disable-warnings {test_dir}").split(),
-                           check=True, capture_output=True)
+                           check=False, capture_output=True)
+
+        if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
+            p.check_returncode()
+
 #        log_write(seg, str(p.stdout, 'UTF-8'))
         return json.load(j)
 

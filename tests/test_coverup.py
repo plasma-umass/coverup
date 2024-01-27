@@ -1,5 +1,5 @@
 from pathlib import Path
-from coverup.coverup import clean_error, find_imports, missing_imports, get_module_name, extract_python
+from coverup import coverup
 
 def test_clean_error_failure():
     error = """
@@ -28,7 +28,7 @@ tests/coverup_tmp_k076ps1h.py:19: AssertionError
 FAILED tests/coverup_tmp_k076ps1h.py::test_find_package_path_namespace_package_first_path
 """
 
-    assert clean_error(error) == """
+    assert coverup.clean_error(error) == """
     def test_find_package_path_namespace_package_first_path():
         # Create a dummy namespace package
         os.makedirs('namespace_package/submodule', exist_ok=True)
@@ -67,7 +67,7 @@ E   ImportError: cannot import name 'JSONProvider' from 'flask.json' (/Users/jua
 ERROR tests/coverup_tmp_dkd55qhh.py
 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
 """
-    assert clean_error(error) == """
+    assert coverup.clean_error(error) == """
 ImportError while importing test module '/Users/juan/tmp/flask/tests/coverup_tmp_dkd55qhh.py'.
 Hint: make sure your test modules/packages have valid Python names.
 Traceback:
@@ -82,7 +82,7 @@ E   ImportError: cannot import name 'JSONProvider' from 'flask.json' (/Users/jua
 
 
 def test_find_imports():
-    assert ['abc', 'bar', 'baz', 'cba', 'foo', 'xy'] == sorted(find_imports("""\
+    assert ['abc', 'bar', 'baz', 'cba', 'foo', 'xy'] == sorted(coverup.find_imports("""\
 import foo, bar.baz
 from baz.zab import a, b, c
 from ..xy import yz
@@ -92,23 +92,23 @@ def foo_func():
     from cba import xyzzy
 """))
 
-    assert [] == find_imports("not a Python program")
+    assert [] == coverup.find_imports("not a Python program")
 
 
 def test_missing_imports():
-    assert not missing_imports(['ast', 'dis', 'sys'])
-    assert not missing_imports([])
-    assert missing_imports(['sys', 'idontexist'])
+    assert not coverup.missing_imports(['ast', 'dis', 'sys'])
+    assert not coverup.missing_imports([])
+    assert coverup.missing_imports(['sys', 'idontexist'])
 
 
 def test_get_module_name():
-    assert 'flask.json.provider' == get_module_name(Path('src/flask/json/provider.py'), Path('src/flask'))
-    assert 'flask.json.provider' == get_module_name('src/flask/json/provider.py', 'src/flask')
-    assert 'flask.tool' == get_module_name('src/flask/tool.py', './tests/../src/flask')
-    assert None == get_module_name('src/flask/tool.py', './tests')
+    assert 'flask.json.provider' == coverup.get_module_name(Path('src/flask/json/provider.py'), Path('src/flask'))
+    assert 'flask.json.provider' == coverup.get_module_name('src/flask/json/provider.py', 'src/flask')
+    assert 'flask.tool' == coverup.get_module_name('src/flask/tool.py', './tests/../src/flask')
+    assert None == coverup.get_module_name('src/flask/tool.py', './tests')
 
 def test_extract_python():
-    assert "foo()\n\nbar()\n" == extract_python("""\
+    assert "foo()\n\nbar()\n" == coverup.extract_python("""\
 ```python
 foo()
 
@@ -116,16 +116,22 @@ bar()
 ```
 """)
 
-    assert "foo()\n\nbar()\n" == extract_python("""\
+    assert "foo()\n\nbar()\n" == coverup.extract_python("""\
 ```python
 foo()
 
 bar()
 ```""")
 
-    assert "foo()\n\nbar()\n" == extract_python("""\
+    assert "foo()\n\nbar()\n" == coverup.extract_python("""\
 ```python
 foo()
 
 bar()
 """)
+
+
+def test_measure_suite_coverage_empty_dir(tmpdir):
+    coverup.args = coverup.parse_args([])
+    coverage = coverup.measure_suite_coverage(tmpdir)   # shouldn't throw
+    assert len(coverage['files']) == 0
