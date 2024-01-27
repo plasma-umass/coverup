@@ -134,4 +134,4 @@ bar()
 def test_measure_suite_coverage_empty_dir(tmpdir):
     coverup.args = coverup.parse_args([])
     coverage = coverup.measure_suite_coverage(tmpdir)   # shouldn't throw
-    assert len(coverage['files']) == 0
+    assert coverage['summary']['covered_lines'] == 0

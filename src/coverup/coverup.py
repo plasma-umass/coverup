@@ -165,7 +165,7 @@ def measure_suite_coverage(test_dir: Path):
 
     with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
         # -qq to cut down on tokens
-        p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
+        p = subprocess.run((f"{sys.executable} -m slipcover --source {args.source_dir} --branch --json --out {j.name} " +
                             f"-m pytest {args.pytest_args} -qq --disable-warnings {test_dir}").split(),
                            check=False, capture_output=True)
 
