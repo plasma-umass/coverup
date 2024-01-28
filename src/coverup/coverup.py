@@ -13,12 +13,12 @@ from coverup.delta import BadTestsFinder
 
 
 PREFIX = 'coverup'
-CKPT_FILE = PREFIX + "-ckpt.json"
 DEFAULT_MODEL='gpt-4-1106-preview'
 
 
 def parse_args(args=None):
     import argparse
+
     ap = argparse.ArgumentParser(prog='CoverUp',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     ap.add_argument('source_files', type=Path, nargs='*',
@@ -38,9 +38,10 @@ def parse_args(args=None):
     ap.add_argument('--source-dir', type=Path, default='src',
                     help='directory where sources reside')
 
-    ap.add_argument('--checkpoint', default=True,
-                    action=argparse.BooleanOptionalAction,
-                    help=f'whether to save progress to {CKPT_FILE}')
+    ap.add_argument('--checkpoint', type=Path, 
+                    help=f'path to save progress to (and to resume it from)')
+    ap.add_argument('--no-checkpoint', action='store_const', const=None, dest='checkpoint', default=argparse.SUPPRESS,
+                    help=f'disables checkpoint')
 
     ap.add_argument('--line-limit', type=int, default=50,
                     help='attempt to keep code segment(s) at or below this limit')
@@ -178,12 +179,12 @@ def measure_suite_coverage(test_dir: Path):
 
 def disable_interfering_tests():
     while True:
-        print("running tests...")
+        print("Running tests...")
         btf = BadTestsFinder(args.tests_dir, pytest_args=args.pytest_args, trace=(print if args.debug else None))
         failing_test = btf.run_tests()
 
         if not failing_test:
-            print("tests ok!")
+            print("Tests ok!")
             break
 
         print(f"{failing_test} is failing, looking for culprit(s)...")
@@ -529,14 +530,12 @@ def main():
     if 'OPENAI_ORGANIZATION' in os.environ:
         openai.organization=os.environ['OPENAI_ORGANIZATION']
 
-    checkpoint_file = Path(CKPT_FILE)
     done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
 
     ckpt = None
     if args.checkpoint:
-        # XXX get coverage information from checkpoint
         try:
-            with checkpoint_file.open("r") as f:
+            with args.checkpoint.open("r") as f:
                 ckpt = json.load(f)
                 assert ckpt['version'] == 1
                 for filename, done_list in ckpt['done'].items():
@@ -572,7 +571,7 @@ def main():
 
     def save_checkpoint():
         if args.checkpoint:
-            with checkpoint_file.open("w") as f:
+            with args.checkpoint.open("w") as f:
                 json.dump({
                     'version': 1,
                     'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
