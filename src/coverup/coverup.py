@@ -254,7 +254,7 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
             print(f"Installed module {module}")
             log_write(seg, f"Installed module {module}")
         except subprocess.CalledProcessError as e:
-            log_write(seg, f"Unable to install module {module}:\n{e.output}")
+            log_write(seg, f"Unable to install module {module}:\n{e.stderr}")
             all_ok = False
 
     return all_ok
@@ -275,59 +275,39 @@ def get_module_name(src_file: Path, src_dir: Path) -> str:
         return None  # not relative to source
 
 
+PROGRESS_COUNTERS=['G', 'F', 'U', 'R']  # good, failed, useless, retry
 class Progress:
     """Tracks progress, showing a tqdm-based bar."""
 
-    def __init__(self, total, initial, usage):
+    def __init__(self, total, initial):
         import tqdm
         from collections import OrderedDict
 
-        self.postfix = OrderedDict()
-        self.usage = {'prompt_tokens': 0, 'completion_tokens': 0}
-        self.postfix['usage'] = ''
-        self.postfix['G'] = 0
-        self.postfix['F'] = 0
-        self.postfix['U'] = 0
-        self.postfix['R'] = 0
-
         self.bar = tqdm.tqdm(total=total, initial=initial)
+
+        self.postfix = OrderedDict()
+        for p in ['usage', *PROGRESS_COUNTERS]:
+            self.postfix[p] = ''  # to establish order
+
         self.bar.set_postfix(ordered_dict=self.postfix)
 
-        if usage: self.add_usage(usage)
-
-    def add_usage(self, usage: dict):
-        """Signals more tokens were used."""
-        for k in self.usage:
-            self.usage[k] += usage[k]
-
-        if (cost := compute_cost(self.usage, args.model)) is not None:
+    def update_usage(self, usage: dict):
+        """Updates the usage display."""
+        if (cost := compute_cost(usage, args.model)) is not None:
             self.postfix['usage'] = f'~${cost:.02f}'
         else:
-            self.postfix['usage'] = f'{self.usage["prompt_tokens"]}+{self.usage["completion_tokens"]}'
+            self.postfix['usage'] = f'{usage["prompt_tokens"]}+{usage["completion_tokens"]}'
 
         self.bar.set_postfix(ordered_dict=self.postfix)
 
-    def add_failing(self):
-        """Signals a failing test."""
-        self.postfix['F'] += 1
+    def update_counters(self, counters: dict):
+        """Updates the counters display."""
+        for k in counters:
+            self.postfix[k] = counters[k]
+
         self.bar.set_postfix(ordered_dict=self.postfix)
 
-    def add_useless(self):
-        """Signals an useless test (that doesn't increase coverage)."""
-        self.postfix['U'] += 1
-        self.bar.set_postfix(ordered_dict=self.postfix)
-
-    def add_good(self):
-        """Signals a 'good', useful test was found."""
-        self.postfix['G'] += 1
-        self.bar.set_postfix(ordered_dict=self.postfix)
-
-    def add_retry(self):
-        """Signals a request retry."""
-        self.postfix['R'] += 1
-        self.bar.set_postfix(ordered_dict=self.postfix)
-
-    def update(self):
+    def signal_one_completed(self):
         """Signals an item completed."""
         self.bar.update()
 
@@ -336,8 +316,95 @@ class Progress:
         self.bar.close()
 
 
+class State:
+    def __init__(self, initial_coverage: dict):
+        """Initializes the CoverUp state."""
+        from collections import defaultdict
+
+        self.done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
+        self.coverage = initial_coverage
+        self.usage = {'prompt_tokens': 0, 'completion_tokens': 0}
+        self.counters = {k:0 for k in PROGRESS_COUNTERS}
+        self.bar = None
+
+
+    def get_initial_coverage(self) -> dict:
+        """Returns the coverage initially measured."""
+        return self.coverage
+
+
+    def set_progress_bar(self, bar: Progress):
+        """Specifies a progress bar to update."""
+        self.bar = bar
+        if bar is not None:
+            self.bar.update_usage(self.usage)
+            self.bar.update_counters(self.counters)
+
+
+    def add_usage(self, usage: dict):
+        """Signals more tokens were used."""
+        for k in self.usage:
+            self.usage[k] += usage[k]
+
+        if self.bar:
+            self.bar.update_usage(self.usage)
+
+
+    def inc_counter(self, key: str):
+        """Increments a progress counter."""
+        self.counters[key] += 1
+
+        if self.bar:
+            self.bar.update_counters(self.counters)
+
+
+    def mark_done(self, seg: CodeSegment):
+        """Marks a segment done."""
+        self.done[seg.filename].add((seg.begin, seg.end))
+
+
+    def is_done(self, seg: CodeSegment):
+        """Returns whether a segment is done."""
+        return (seg.begin, seg.end) in self.done[seg.filename]
+
+
+    @staticmethod
+    def load_checkpoint(ckpt_file: Path):   # -> State
+        """Loads state from a checkpoint."""
+        try:
+            with ckpt_file.open("r") as f:
+                ckpt = json.load(f)
+                assert ckpt['version'] == 1
+                assert 'usage' in ckpt
+                assert 'coverage' in ckpt, "coverage information missing in checkpoint"
+
+                state = State(ckpt['coverage'])
+                for filename, done_list in ckpt['done'].items():
+                    state.done[filename] = set(tuple(d) for d in done_list)
+                state.add_usage(ckpt['usage'])
+                if 'counters' in ckpt:
+                    state.counters = ckpt['counters']
+                return state
+
+        except FileNotFoundError:
+            return None
+
+
+    def save_checkpoint(self, ckpt_file: Path):
+        """Saves this state to a checkpoint file."""
+        with ckpt_file.open("w") as f:
+            json.dump({
+                'version': 1,
+                'done': {k:list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'set' as-is
+                'usage': self.usage,
+                'counters': self.counters,
+                'coverage': self.coverage
+                # FIXME save missing modules
+            }, f)
+
+
+state = None
 token_rate_limit = None
-progress = None
 async def do_chat(seg: CodeSegment, completion: dict) -> str:
     """Sends a GPT chat request, handling common failures and returning the response."""
 
@@ -365,7 +432,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             import random
             sleep = min(sleep*2, args.max_backoff)
             sleep_time = random.uniform(sleep/2, sleep)
-            progress.add_retry()
+            state.inc_counter('R')
             await asyncio.sleep(sleep_time)
 
         except openai.error.InvalidRequestError as e:
@@ -377,7 +444,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                 openai.error.APIError) as e:
             log_write(seg, f"Error: {type(e)} {e}")
             # usually a server-side error... just retry right away
-            progress.add_retry()
+            state.inc_counter('R')
 
 
 def extract_python(response: str) -> str:
@@ -438,8 +505,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         response_message = response["choices"][0]["message"]
         log_write(seg, response_message['content'])
 
-        progress.add_usage(response['usage'])
-        log_write(seg, f"total usage: {progress.usage}")
+        state.add_usage(response['usage'])
+        log_write(seg, f"total usage: {state.usage}")
 
         messages.append(response_message)
 
@@ -462,7 +529,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             return False # try again next time
 
         except subprocess.CalledProcessError as e:
-            progress.add_failing()
+            state.inc_counter('F')
             messages.append({
                 "role": "user",
                 "content": "Executing the test yields an error, shown below.\n" +\
@@ -495,7 +562,7 @@ Modify it to correct that; respond only with the complete Python code in backtic
 """
             })
             log_write(seg, messages[-1]['content'])
-            progress.add_useless()
+            state.inc_counter('U')
             continue
 
         # the test is good 'nough...
@@ -506,7 +573,7 @@ Modify it to correct that; respond only with the complete Python code in backtic
                             last_test)
 
         log_write(seg, f"Saved as {new_test}\n")
-        progress.add_good()
+        state.inc_counter('G')
         break
 
     return True # finished
@@ -516,7 +583,7 @@ def main():
     from collections import defaultdict
     import os
 
-    global args, token_rate_limit, progress
+    global args, token_rate_limit, state
     args = parse_args()
 
     if not args.tests_dir.exists():
@@ -541,55 +608,28 @@ def main():
     if 'OPENAI_ORGANIZATION' in os.environ:
         openai.organization=os.environ['OPENAI_ORGANIZATION']
 
-    done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
+    log_write('startup', f"Command: {' '.join(sys.argv)}")
 
-    ckpt = None
-    if args.checkpoint:
-        try:
-            with args.checkpoint.open("r") as f:
-                ckpt = json.load(f)
-                assert ckpt['version'] == 1
-                for filename, done_list in ckpt['done'].items():
-                    done[filename] = set(tuple(d) for d in done_list)
-                assert 'usage' in ckpt
-                assert 'coverage' in ckpt, "coverage information missing in checkpoint"
-                print("Continuing from checkpoint.")
-        except json.decoder.JSONDecodeError:
-            pass
-        except FileNotFoundError:
-            pass
+    # --- (1) load or measure initial coverage, figure out segmentation ---
 
-    # --- (1) figure out initial coverage & segmentation ---
-
-    if ckpt:
-        coverage = ckpt['coverage']
+    if args.checkpoint and (state := State.load_checkpoint(args.checkpoint)):
+        print("Continuing from checkpoint.")
     else:
-        # TODO could offer --coverage-from
-        # with args.coverage_from.open() as f:
-        #     coverage = json.load(f)
         try:
             print("Measuring test suite coverage...")
             coverage = measure_suite_coverage(args.tests_dir)
         except subprocess.CalledProcessError as e:
-            print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8'))
+            print("Error measuring coverage:\n" + str(e.stderr, 'UTF-8'))
             return 1
 
-    segments = sorted(get_missing_coverage(coverage, line_limit=args.line_limit),
+        state = State(coverage)
+
+    segments = sorted(get_missing_coverage(state.get_initial_coverage(), line_limit=args.line_limit),
                       key=lambda seg: seg.missing_count(), reverse=True)
 
-    log_write('startup', f"Command: {' '.join(sys.argv)}" +\
-                        (f"\nCheckpoint: True\nPrevious usage: {ckpt['usage']}" if ckpt else ""))
-
-    def save_checkpoint():
-        if args.checkpoint:
-            with args.checkpoint.open("w") as f:
-                json.dump({
-                    'version': 1,
-                    'done': {k:list(v) for k,v in done.items() if len(v)},  # cannot serialize 'set' as-is
-                    'usage': progress.usage,
-                    'coverage': coverage
-                    # XXX save other status, such as G, F, etc. and missing modules
-                }, f)
+    # save initial coverage so we don't have to redo it next time
+    if args.checkpoint:
+        state.save_checkpoint(args.checkpoint)
 
     # --- (2) prompt for tests ---
 
@@ -597,12 +637,13 @@ def main():
 
     async def work_segment(seg: CodeSegment) -> None:
         if await improve_coverage(seg):
-            # Only mark done if was able to complete, so that it can be retried
-            # after installing any missing modules
-            done[seg.filename].add((seg.begin, seg.end))
+            # Only mark done if was able to complete (True return),
+            # so that it can be retried after installing any missing modules
+            state.mark_done(seg)
 
-        save_checkpoint()
-        progress.update()
+        if args.checkpoint:
+            state.save_checkpoint(args.checkpoint)
+        progress.signal_one_completed()
 
     worklist = []
     seg_done_count = 0
@@ -613,12 +654,15 @@ def main():
         if args.source_files and all(seg.filename not in str(s) for s in args.source_files):
             continue
 
-        if (seg.begin, seg.end) in done[seg.filename]:
+        if state.is_done(seg):
             seg_done_count += 1
         else:
             worklist.append(work_segment(seg))
 
-    async def runit():
+    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count)
+    state.set_progress_bar(progress)
+
+    async def run_it():
         if args.max_concurrency:
             semaphore = asyncio.Semaphore(args.max_concurrency)
 
@@ -630,12 +674,14 @@ def main():
         else:
             await asyncio.gather(*worklist)
 
-    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, usage=(ckpt['usage'] if ckpt else None))
+    try:
+        asyncio.run(run_it())
+    except KeyboardInterrupt:
+        print("Interrupted.")
+        if args.checkpoint:
+            state.save_checkpoint(args.checkpoint)
+        return 1
 
-    # if we didn't load a checkpoint, save it now, to save the effort of measuring coverage again
-    if not ckpt: save_checkpoint()
-
-    asyncio.run(runit())
     progress.close()
 
     # --- (3) check resulting test suite ---
@@ -646,6 +692,7 @@ def main():
 
     if required := get_required_modules():
         # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
+        # FIXME move this to 'state'
         print(f"Some modules seem missing:  {', '.join(str(m) for m in required)}")
         if args.write_requirements_to:
             with args.write_requirements_to.open("a") as f:
