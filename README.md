@@ -2,9 +2,7 @@
 by [Juan Altmayer Pizzorno](https://jaltmayerpizzorno.github.io) and [Emery Berger](https://emeryberger.com)
 at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
 
-[![license](https://img.shields.io/github/license/plasma-umass/coverup?color=blue)](LICENSE)
 [![pypi](https://img.shields.io/pypi/v/coverup?color=blue)](https://pypi.org/project/coverup/)
-[![Downloads](https://static.pepy.tech/badge/coverup)](https://pepy.tech/project/coverup)
 ![pyversions](https://img.shields.io/pypi/pyversions/coverup)
 
 ## About CoverUp
@@ -34,13 +32,20 @@ export OPENAI_API_KEY=<...your-api-key...>
 ```
 
 ## Using
- - example
- - talk about `PYTHONPATH`
- - talk about docker
+If your module's source code is in `src` and your tests in `tests`, you can run CoverUp as
+```shell
+coverup --source-dir src --tests-dir tests
+```
+CoverUp then creates tests named `test_coverup_N.py`, where `N` is a number, under the `tests` directory.
+
+ - talk about `PYTHONPATH`... or make this automatic?
+ - talk about using docker
  - checkpointing
 
-# Acknowledgements
+## Any Disclaimers?
+Experimental, your mileage may vary, ask your doctor, ...
 
+## Acknowledgements
 This material is based upon work supported by the National Science
 Foundation under Grant No. 1955610. Any opinions, findings, and
 conclusions or recommendations expressed in this material are those of
