@@ -81,6 +81,14 @@ def parse_args(args=None):
                     action=argparse.BooleanOptionalAction,
                     help='print out debugging messages.')
 
+    def positive_int(value):
+        ivalue = int(value)
+        if ivalue < 0: raise argparse.ArgumentTypeError("must be a number >= 0")
+        return ivalue
+
+    ap.add_argument('--max-concurrency', type=positive_int, default=50,
+                    help='maximum number of parallel requests; 0 means unlimited')
+
     return ap.parse_args(args)
 
 
@@ -291,9 +299,12 @@ class Progress:
         """Signals more tokens were used."""
         for k in self.usage:
             self.usage[k] += usage[k]
-        cost = compute_cost(self.usage, args.model)
-        self.postfix['usage'] = f'{self.usage["prompt_tokens"]}+{self.usage["completion_tokens"]}' + \
-                                (f' (~${cost:.02f})' if cost is not None else '')
+
+        if (cost := compute_cost(self.usage, args.model)) is not None:
+            self.postfix['usage'] = f'~${cost:.02f}'
+        else:
+            self.postfix['usage'] = f'{self.usage["prompt_tokens"]}+{self.usage["completion_tokens"]}'
+
         self.bar.set_postfix(ordered_dict=self.postfix)
 
     def add_failing(self):
@@ -574,7 +585,7 @@ def main():
             with args.checkpoint.open("w") as f:
                 json.dump({
                     'version': 1,
-                    'done': {k:list(v) for k,v in done.items()},    # cannot serialize sets as-is
+                    'done': {k:list(v) for k,v in done.items() if len(v)},  # cannot serialize 'set' as-is
                     'usage': progress.usage,
                     'coverage': coverage
                     # XXX save other status, such as G, F, etc. and missing modules
@@ -608,15 +619,16 @@ def main():
             worklist.append(work_segment(seg))
 
     async def runit():
-# TODO limit concurrency
-#        semaphore = asyncio.Semaphore(30)
-#
-#        async def sem_coro(coro):
-#            async with semaphore:
-#                return await coro
-#
-#        await asyncio.gather(*(sem_coro(c) for c in worklist))
-        await asyncio.gather(*worklist)
+        if args.max_concurrency:
+            semaphore = asyncio.Semaphore(args.max_concurrency)
+
+            async def sem_coro(coro):
+                async with semaphore:
+                    return await coro
+
+            await asyncio.gather(*(sem_coro(c) for c in worklist))
+        else:
+            await asyncio.gather(*worklist)
 
     progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count, usage=(ckpt['usage'] if ckpt else None))
 
