@@ -52,6 +52,9 @@ def parse_args(args=None):
     ap.add_argument('--max-backoff', type=int, default=64,
                     help='max. number of seconds for backoff interval')
 
+    ap.add_argument('--max-attempts', type=int, default=3,
+                    help='max. number of prompt attempts for a code segment')
+
     ap.add_argument('--dry-run', default=False,
                     action=argparse.BooleanOptionalAction,
                     help=f'whether to actually prompt the model; used for testing')
@@ -491,11 +494,10 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         return True
 
     while True:
-        if (attempts > 5):
+        attempts += 1
+        if (attempts > args.max_attempts):
             log_write(seg, "Too many attempts, giving up")
             break
-
-        attempts += 1
 
         if not (response := await do_chat(seg, {'model': args.model, 'messages': messages,
                                                 'temperature': args.model_temperature})):
