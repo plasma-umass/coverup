@@ -24,18 +24,10 @@ def parse_args(args=None):
     ap.add_argument('source_files', type=Path, nargs='*',
                     help='only process certain source file(s)')
 
-    ap.add_argument('--model', type=str, default=DEFAULT_MODEL,
-                    help='OpenAI model to use')
-
-    ap.add_argument('--model-temperature', type=str, default=0,
-                    help='Model "temperature" to use')
-
-    # TODO derive this somehow?
-    ap.add_argument('--tests-dir', type=Path, default='tests',
+    ap.add_argument('--tests-dir', type=Path, required=True,
                     help='directory where tests reside')
 
-    # TODO derive this somehow?
-    ap.add_argument('--source-dir', type=Path, default='src',
+    ap.add_argument('--source-dir', '--source', type=Path, required=True,
                     help='directory where sources reside')
 
     ap.add_argument('--checkpoint', type=Path, 
@@ -43,17 +35,23 @@ def parse_args(args=None):
     ap.add_argument('--no-checkpoint', action='store_const', const=None, dest='checkpoint', default=argparse.SUPPRESS,
                     help=f'disables checkpoint')
 
+    ap.add_argument('--model', type=str, default=DEFAULT_MODEL,
+                    help='OpenAI model to use')
+
+    ap.add_argument('--model-temperature', type=str, default=0,
+                    help='Model "temperature" to use')
+
     ap.add_argument('--line-limit', type=int, default=50,
                     help='attempt to keep code segment(s) at or below this limit')
 
     ap.add_argument('--rate-limit', type=int,
                     help='max. tokens/minute to send in prompts')
 
-    ap.add_argument('--max-backoff', type=int, default=64,
-                    help='max. number of seconds for backoff interval')
-
     ap.add_argument('--max-attempts', type=int, default=3,
                     help='max. number of prompt attempts for a code segment')
+
+    ap.add_argument('--max-backoff', type=int, default=64,
+                    help='max. number of seconds for backoff interval')
 
     ap.add_argument('--dry-run', default=False,
                     action=argparse.BooleanOptionalAction,
