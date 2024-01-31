@@ -135,13 +135,13 @@ bar()
 @pytest.mark.parametrize("pythonpath_exists", [True, False])
 def test_add_to_pythonpath(pythonpath_exists):
     import sys, os
-    saved_pythonpath = os.environ.get('PYTHONPATH')
+    saved_environ = dict(os.environ.items())
     saved_syspath = list(sys.path)
 
     try:
         if pythonpath_exists:
             os.environ['PYTHONPATH'] = 'foo:bar'
-        else:
+        elif 'PYTHONPATH' in os.environ:
             del os.environ['PYTHONPATH']
 
         coverup.add_to_pythonpath(Path("baz/mymodule"))
@@ -149,13 +149,10 @@ def test_add_to_pythonpath(pythonpath_exists):
         if pythonpath_exists:
             assert os.environ['PYTHONPATH'] == 'baz:foo:bar'
         else:
-            assert 'PYTHONPATH' in os.environ
+            assert os.environ['PYTHONPATH'] == 'baz'
 
         assert sys.path == ['baz'] + saved_syspath
 
     finally:
-        if saved_pythonpath:
-            os.environ['PYTHONPATH'] = saved_pythonpath
-        else:
-            del os.environ['PYTHONPATH']
+        os.environ = saved_environ
         sys.path = saved_syspath
