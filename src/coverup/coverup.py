@@ -9,7 +9,7 @@ import sys
 from datetime import datetime
 from coverup.llm import *
 from coverup.segment import *
-from coverup.delta import BadTestsFinder
+from coverup.testrunner import *
 
 
 PREFIX = 'coverup'
@@ -144,45 +144,6 @@ def log_write(seg: CodeSegment, m: str) -> None:
         log_file = open(args.log_file, "a", buffering=1)    # 1 = line buffered
 
     log_file.write(f"---- {datetime.now().isoformat(timespec='seconds')} {seg} ----\n{m}\n")
-
-
-def measure_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None):
-    """Runs a given test and returns the coverage obtained."""
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(prefix="tmp_test_", suffix='.py',
-                                     dir=str(tests_dir), mode="w") as t:
-        t.write(test)
-        t.flush()
-
-        with tempfile.NamedTemporaryFile() as j:
-            # -qq to cut down on tokens
-            p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
-                                f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
-                               check=True, capture_output=True, timeout=60)
-            if log_write:
-                log_write(str(p.stdout, 'UTF-8'))
-
-            cov = json.load(j)
-
-    return cov["files"]
-
-
-def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args=''):
-    """Runs a given test and returns the coverage obtained."""
-    import tempfile
-    import pytest
-
-    with tempfile.NamedTemporaryFile() as j:
-        p = subprocess.run((f"{sys.executable} -m slipcover --source {source_dir} --branch --json --out {j.name} " +
-                            f"-m pytest {pytest_args} -qq --disable-warnings {tests_dir}").split(),
-                           check=False, capture_output=True)
-
-        if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
-            p.check_returncode()
-
-#        log_write(seg, str(p.stdout, 'UTF-8'))
-        return json.load(j)
 
 
 def disable_interfering_tests():

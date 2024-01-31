@@ -129,8 +129,3 @@ foo()
 
 bar()
 """)
-
-
-def test_measure_suite_coverage_empty_dir(tmpdir):
-    coverage = coverup.measure_suite_coverage(tests_dir=Path(tmpdir), source_dir=Path('src'))   # shouldn't throw
-    assert coverage['summary']['covered_lines'] == 0
