@@ -48,7 +48,6 @@ class RuntimeException(Exception):
 
 class BadTestsFinder(DeltaDebugger):
     """Finds tests that cause other tests to fail."""
-
     def __init__(self, *, tests_dir: Path, pytest_args: str = '', trace = None):
         super(BadTestsFinder, self).__init__(trace=trace)
         self.tests_dir = tests_dir
@@ -135,6 +134,9 @@ class BadTestsFinder(DeltaDebugger):
         """Returns the set of tests causing 'failing_test' to fail."""
         assert failing_test in self.all_tests
 
+        # TODO first test collection using --collect-only, with short timeout
+        # TODO reduce timeout for actually running tests
+
 # we unfortunately can't do this... the code that causes test(s) to fail may execute during pytest collection.
 #        sorted_tests = sorted(self.all_tests)
 #        test_set = set(sorted_tests[:sorted_tests.index(failing_test)])
@@ -145,6 +147,7 @@ class BadTestsFinder(DeltaDebugger):
 
     @staticmethod
     def find_failed_test(output: str) -> Path:
+        # TODO move out of this class?
         import re
         if (m := re.search("^===+ short test summary info ===+\n" +\
                            "^(?:ERROR|FAILED) ([^\\s:]+)", output, re.MULTILINE)):
