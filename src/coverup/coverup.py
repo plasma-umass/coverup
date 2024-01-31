@@ -146,37 +146,36 @@ def log_write(seg: CodeSegment, m: str) -> None:
     log_file.write(f"---- {datetime.now().isoformat(timespec='seconds')} {seg} ----\n{m}\n")
 
 
-def measure_coverage(seg: CodeSegment, test: str):
+def measure_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None):
     """Runs a given test and returns the coverage obtained."""
     import tempfile
-    global args
 
-    with tempfile.NamedTemporaryFile(prefix=PREFIX + "_tmp_", suffix='.py',
-                                     dir=str(args.tests_dir), mode="w") as t:
+    with tempfile.NamedTemporaryFile(prefix="tmp_test_", suffix='.py',
+                                     dir=str(tests_dir), mode="w") as t:
         t.write(test)
         t.flush()
 
-        with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
+        with tempfile.NamedTemporaryFile() as j:
             # -qq to cut down on tokens
             p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
-                                f"-m pytest {args.pytest_args} -qq --disable-warnings {t.name}").split(),
+                                f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
                                check=True, capture_output=True, timeout=60)
-            log_write(seg, str(p.stdout, 'UTF-8'))
+            if log_write:
+                log_write(str(p.stdout, 'UTF-8'))
+
             cov = json.load(j)
 
     return cov["files"]
 
 
-def measure_suite_coverage(test_dir: Path):
+def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args=''):
     """Runs a given test and returns the coverage obtained."""
     import tempfile
     import pytest
-    global args
 
-    with tempfile.NamedTemporaryFile(prefix=PREFIX + "_") as j:
-        # -qq to cut down on tokens
-        p = subprocess.run((f"{sys.executable} -m slipcover --source {args.source_dir} --branch --json --out {j.name} " +
-                            f"-m pytest {args.pytest_args} -qq --disable-warnings {test_dir}").split(),
+    with tempfile.NamedTemporaryFile() as j:
+        p = subprocess.run((f"{sys.executable} -m slipcover --source {source_dir} --branch --json --out {j.name} " +
+                            f"-m pytest {pytest_args} -qq --disable-warnings {tests_dir}").split(),
                            check=False, capture_output=True)
 
         if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
@@ -522,7 +521,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 return False # not finished: needs a missing module
 
         try:
-            result = measure_coverage(seg, last_test)
+            result = measure_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                      log_write=lambda msg: log_write(seg, msg))
 
         except subprocess.TimeoutExpired:
             log_write(seg, "measure_coverage timed out")
@@ -617,7 +617,8 @@ def main():
     else:
         try:
             print("Measuring test suite coverage...")
-            coverage = measure_suite_coverage(args.tests_dir)
+            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
+                                              pytest_args=args.pytest_args)
         except subprocess.CalledProcessError as e:
             print("Error measuring coverage:\n" + str(e.stderr, 'UTF-8'))
             return 1

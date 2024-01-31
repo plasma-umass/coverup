@@ -2,7 +2,7 @@ import abc
 import typing as T
 from pathlib import Path
 
-def compact(test_set):
+def _compact(test_set):
     """Generates a (more) compact test name representation for debugging messages."""
     import re
 
@@ -46,7 +46,7 @@ class DeltaDebugger(abc.ABC):
 
 
     def debug(self, changes: set, rest: set = set(), **kwargs) -> set:
-        if self.trace: self.trace(f"debug(changes={compact(changes)}; rest={compact(rest)})")
+        if self.trace: self.trace(f"debug(changes={_compact(changes)}; rest={_compact(rest)})")
 
         len_changes = len(changes)
         if len_changes == 1: return changes # got it
@@ -71,9 +71,9 @@ class RuntimeException(Exception):
 class BadTestsFinder(DeltaDebugger):
     """Finds tests that cause other tests to fail."""
 
-    def __init__(self, test_dir: Path, *, pytest_args: str = '', trace = None):
+    def __init__(self, *, tests_dir: Path, pytest_args: str = '', trace = None):
         super(BadTestsFinder, self).__init__(trace=trace)
-        self.test_dir = test_dir
+        self.tests_dir = tests_dir
 
         def find_tests(p):
             for f in p.iterdir():
@@ -84,7 +84,7 @@ class BadTestsFinder(DeltaDebugger):
                     if f.is_file() and (f.stem.startswith('test_') or f.stem.endswith('_test')) and f.suffix == '.py':
                         yield f
 
-        self.all_tests = set(find_tests(self.test_dir))
+        self.all_tests = set(find_tests(self.tests_dir))
         self.pytest_args = pytest_args
 
 
@@ -111,12 +111,12 @@ class BadTestsFinder(DeltaDebugger):
                     if src_file not in self.all_tests or src_file in test_set:
                         dst_file.hardlink_to(src_file)
 
-        assert self.test_dir.parent != self.test_dir # we need a parent directory
+        assert self.tests_dir.parent != self.tests_dir # we need a parent directory
 
         if self.trace: self.trace(f"running {len(test_set)} test(s).")
-        with tempfile.TemporaryDirectory(dir=self.test_dir.parent) as tmpdir:
+        with tempfile.TemporaryDirectory(dir=self.tests_dir.parent) as tmpdir:
             tmpdir = Path(tmpdir)
-            link_tree(self.test_dir, tmpdir)
+            link_tree(self.tests_dir, tmpdir)
 
             p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings " +\
                                 f"--rootdir {tmpdir} {tmpdir}").split(),
@@ -135,7 +135,7 @@ class BadTestsFinder(DeltaDebugger):
                 first_failing = first_failing.resolve()
 
             # bring it back to its normal path
-            first_failing = self.test_dir / first_failing.relative_to(tmpdir)
+            first_failing = self.tests_dir / first_failing.relative_to(tmpdir)
 
             if self.trace: self.trace(f"tests rc={p.returncode} first_failing={first_failing}")
 

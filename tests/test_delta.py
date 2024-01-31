@@ -26,38 +26,38 @@ def test_multiple(nums):
 
 
 def test_run_tests_no_tests(tmpdir):
-    test_dir = Path(tmpdir)
+    tests_dir = Path(tmpdir)
 
-    (test_dir / "test_foo.py").write_text("# no tests here")
+    (tests_dir / "test_foo.py").write_text("# no tests here")
 
-    btf = BadTestsFinder(test_dir, trace=print)
+    btf = BadTestsFinder(tests_dir=tests_dir, trace=print)
     failed = btf.run_tests()
     assert failed is None
 
 
 def test_finds_tests_in_subdir(tmpdir):
-    test_dir = Path(tmpdir)
+    tests_dir = Path(tmpdir)
 
-    (test_dir / "test_foo.py").write_text("def test(): pass")
-    subdir = test_dir / "subdir"
+    (tests_dir / "test_foo.py").write_text("def test(): pass")
+    subdir = tests_dir / "subdir"
     subdir.mkdir()
     test_in_subdir = (subdir / "test_bar.py")
     test_in_subdir.write_text("def test(): pass")
 
-    btf = BadTestsFinder(test_dir, trace=print)
+    btf = BadTestsFinder(tests_dir=tests_dir, trace=print)
     assert test_in_subdir in btf.all_tests
 
 
 @pytest.mark.parametrize("existing_testconf", [True, False])
 @pytest.mark.parametrize("fail_load", [True, False])
 def test_find_culprit(tmpdir, existing_testconf, fail_load):
-    test_dir = Path(tmpdir)
+    tests_dir = Path(tmpdir)
 
     def seq2p(seq):
-        return test_dir / f"test_coverup_{seq}.py"
+        return tests_dir / f"test_coverup_{seq}.py"
 
     if existing_testconf:
-        (test_dir / "testconf.py").write_text("# my precious")
+        (tests_dir / "testconf.py").write_text("# my precious")
 
     all_tests = {seq2p(seq) for seq in range(10)}
     for t in all_tests:
@@ -72,16 +72,16 @@ def test_find_culprit(tmpdir, existing_testconf, fail_load):
     else:
         failing.write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
 
-    btf = BadTestsFinder(test_dir, trace=print)
+    btf = BadTestsFinder(tests_dir=tests_dir, trace=print)
 
     assert not btf.test({failing})
 
     assert {seq2p(3)} == btf.find_culprit(failing)
 
     if existing_testconf:
-        assert (test_dir / "testconf.py").read_text() == "# my precious"
+        assert (tests_dir / "testconf.py").read_text() == "# my precious"
     else:
-        assert not (test_dir / "testconf.py").exists()
+        assert not (tests_dir / "testconf.py").exists()
 
 
 def test_find_failed_test_collecting():
