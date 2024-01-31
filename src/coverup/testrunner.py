@@ -42,8 +42,20 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='')
         return json.load(j)
 
 
-class RuntimeException(Exception):
+
+class ParseError(Exception):
     pass
+
+
+def parse_failed_test(p: subprocess.CompletedProcess) -> Path:
+    import re
+
+    output = str(p.stdout, 'UTF-8')
+    if (m := re.search("^===+ short test summary info ===+\n" +\
+                       "^(?:ERROR|FAILED) ([^\\s:]+)", output, re.MULTILINE)):
+        return Path(m.group(1))
+
+    raise ParseError(f"Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n{output}")
 
 
 class BadTestsFinder(DeltaDebugger):
@@ -103,9 +115,7 @@ class BadTestsFinder(DeltaDebugger):
                 if self.trace: self.trace(f"tests passed")
                 return None
 
-            if not (first_failing := self.find_failed_test(str(p.stdout, 'UTF-8'))):
-                raise RuntimeException(f"Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n" +\
-                                       str(p.stdout, 'UTF-8') + "\n----\n")
+            first_failing = parse_failed_test(p)
 
             if tmpdir.is_absolute():
                 # pytest sometimes makes absolute paths into relative ones by adding ../../.. to root...
@@ -143,14 +153,3 @@ class BadTestsFinder(DeltaDebugger):
 #        assert self.test(test_set), "Test set doesn't fail!"
 
         return self.debug(changes=self.all_tests - {failing_test}, rest={failing_test}, target_test=failing_test)
-
-
-    @staticmethod
-    def find_failed_test(output: str) -> Path:
-        # TODO move out of this class?
-        import re
-        if (m := re.search("^===+ short test summary info ===+\n" +\
-                           "^(?:ERROR|FAILED) ([^\\s:]+)", output, re.MULTILINE)):
-            return Path(m.group(1))
-
-        return None
