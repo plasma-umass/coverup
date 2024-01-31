@@ -72,8 +72,11 @@ green bars, above 0, indicate that CoverUp achieved a higher coverage.
 As the graph shows, CoverUp achieves better coverage in almost every case.
 Both CoverUp and CodaMosa created tests "from scratch", that is, ignoring any existing test suite.
 
+<br/>
+
 ## Work In Progress
-Please enjoy this early release of CoverUp, and pardon any disruptions while we actively develop it.
+This is an early release of CoverUp.
+Please enjoy it, and pardon any disruptions as we actively work to improve it.
 
 ## Acknowledgements
 This material is based upon work supported by the National Science
