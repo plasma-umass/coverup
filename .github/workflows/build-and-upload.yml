@@ -1,0 +1,43 @@
+#
+# When executed manually, this will upload to testpypi;
+# when executed upon a release, it will upload to pypi.
+#
+# For pypi, you need to have the PYPI_USERNAME and PYPI_PASSWORD secrets configured.
+# For testpypi, you'll need TESTPYPI_USERNAME and TESTPYPI_PASSWORD.
+#
+name: build & upload
+
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+jobs:
+  build-wheel:
+    runs-on: 'ubuntu-latest'
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: build it
+        run: |
+          python3 -m pip install build wheel twine virtualenv
+          python3 -m build --wheel
+
+      - name: Non-release (dev) upload
+        if: github.event_name != 'release'
+        env:
+          TWINE_REPOSITORY: testpypi
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.TESTPYPI_TOKEN }}
+        run: twine upload --verbose dist/*
+
+      - name: Release upload
+        if: github.event_name == 'release'
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: twine upload --verbose dist/*
