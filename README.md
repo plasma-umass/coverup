@@ -21,7 +21,7 @@ Finally, CoverUp checks that the new tests integrate well, attempting to resolve
 ## Installing
 CoverUp is available from PyPI, so you can install simply with
 ```shell
-python3 -m pip install coverup
+$ python3 -m pip install coverup
 ```
 
 While we intend to also support local LLMs, currently CoverUp requires an [OpenAI account](https://platform.openai.com/signup) to run.
@@ -29,13 +29,13 @@ Your account will also need to have a [positive balance](https://platform.openai
 Create an [API key](https://platform.openai.com/api-keys) and store its "secret key" (usually a
 string starting with `sk-`) in an environment variable named `OPENAI_API_KEY`:
 ```shell
-export OPENAI_API_KEY=<...your-api-key...>
+$ export OPENAI_API_KEY=<...your-api-key...>
 ```
 
 ## Using
 If your module's source code is in `src` and your tests in `tests`, you can run CoverUp as
 ```shell
-coverup --source-dir src --tests-dir tests
+$ coverup --source-dir src --tests-dir tests
 ```
 CoverUp then creates tests named `test_coverup_N.py`, where `N` is a number, under the `tests` directory.
 
