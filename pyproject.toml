@@ -1,6 +1,6 @@
 [project]
 name = "CoverUp"
-description = "AI-powered test coverage improver"
+description = "LLM-powered test coverage improver"
 readme = "README.md"
 version = "0.1.0"
 authors = [
