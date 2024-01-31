@@ -63,7 +63,7 @@ To minimize security concerns, including the risk of damage to your system, we r
 that you run CoverUp using [Docker](https://www.docker.com/).
 
 ## Work In Progress
-Please enjoy this early release of CoverUp, and pardon any disruptions we may cause while we actively develop it.
+Please enjoy this early release of CoverUp, and pardon any disruptions while we actively develop it.
 
 ## Acknowledgements
 This material is based upon work supported by the National Science
