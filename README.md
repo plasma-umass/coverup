@@ -1,3 +1,5 @@
+<img src="images/logo.png?raw=True" align="right" width="10%"/>
+
 # CoverUp: Automatically Generating Higher-Coverage Test Suites with AI
 
 by [Juan Altmayer Pizzorno](https://jaltmayerpizzorno.github.io) and [Emery Berger](https://emeryberger.com)
