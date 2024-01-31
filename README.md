@@ -17,7 +17,7 @@ CoverUp is designed to work closely with the [pytest](https://docs.pytest.org/en
 To generate tests, it first measures your suite's coverage using [SlipCover](https://github.com/plasma-umass/slipcover), our state-of-the art coverage analyzer.
 It then selects portions of the code that need more testing (that is, code that is uncovered).
 CoverUp then engages in a conversation with an [LLM](https://en.wikipedia.org/wiki/Large_language_model),
-prompting for tests, checking the results to verify that these increase coverage (again using SlipCover), and re-prompting for adjustments as necessary.
+prompting for tests, checking the results to verify that they run and increase coverage (again using SlipCover), and re-prompting for adjustments as necessary.
 Finally, CoverUp checks that the new tests integrate well, attempting to resolve any issues it finds.
 
 ## Installing CoverUp
@@ -58,7 +58,8 @@ Measuring test suite coverage...  end coverage: 94.2%
 ```
 In under 3 minutes, CoverUp increases Flask's test coverage from 90.2% to 94.2%.
 It detected that one of the new tests, `test_coverup_19`, was causing another test
-to fail and disabled it. That test remains as `disabled_test_coverup_19.py`, where it can be reviewed for the cause
+to fail and disabled it.
+That test remains as `disabled_test_coverup_19.py`, where it can be reviewed for the cause
 and possibly re-added to the suite.
 
 ### Running CoverUp with Docker
