@@ -211,12 +211,12 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
         try:
             # FIXME we probably want to limit the module(s) installed to an "approved" list
             p = subprocess.run((f"{sys.executable} -m pip install {module}").split(),
-                               check=True, capture_output=True, timeout=60)
+                               check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
             module_available[module] = 2    # originally unavailable, but now added
             print(f"Installed module {module}")
             log_write(seg, f"Installed module {module}")
         except subprocess.CalledProcessError as e:
-            log_write(seg, f"Unable to install module {module}:\n{e.stderr}")
+            log_write(seg, f"Unable to install module {module}:\n{e.stdout}")
             all_ok = False
 
     return all_ok
@@ -496,7 +496,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 "role": "user",
                 "content": "Executing the test yields an error, shown below.\n" +\
                            "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
-                           clean_error(str(e.output, 'UTF-8'))
+                           clean_error(str(e.stdout, 'UTF-8'))
             })
             log_write(seg, messages[-1]['content'])
             continue
@@ -592,7 +592,7 @@ def main():
             coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
                                               pytest_args=args.pytest_args)
         except subprocess.CalledProcessError as e:
-            print("Error measuring coverage:\n" + str(e.stderr, 'UTF-8'))
+            print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8'))
             return 1
 
         state = State(coverage)
@@ -675,7 +675,7 @@ def main():
                                           pytest_args=args.pytest_args)
         print(f"end coverage: {coverage['summary']['percent_covered']:.1f}%")
     except subprocess.CalledProcessError as e:
-        print("Error measuring coverage:\n" + str(e.stderr, 'UTF-8'))
+        print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8'))
 
     if required := get_required_modules():
         # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify

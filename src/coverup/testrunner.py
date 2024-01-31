@@ -19,7 +19,7 @@ def measure_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=No
             # -qq to cut down on tokens
             p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
                                 f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
-                               check=True, capture_output=True, timeout=60)
+                               check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
             if log_write:
                 log_write(str(p.stdout, 'UTF-8'))
 
@@ -33,7 +33,7 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='')
     with tempfile.NamedTemporaryFile() as j:
         p = subprocess.run((f"{sys.executable} -m slipcover --source {source_dir} --branch --json --out {j.name} " +
                             f"-m pytest {pytest_args} -qq --disable-warnings {tests_dir}").split(),
-                           check=False, capture_output=True)
+                           check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
             p.check_returncode()
@@ -97,7 +97,7 @@ class BadTestsFinder(DeltaDebugger):
 
             p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings " +\
                                 f"--rootdir {tmpdir} {tmpdir}").split(),
-                               check=False, capture_output=True, timeout=2*60*60)
+                               check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=2*60*60)
 
             if p.returncode in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
                 if self.trace: self.trace(f"tests passed")
