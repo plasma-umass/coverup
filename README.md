@@ -1,4 +1,4 @@
-<img src="images/logo.png?raw=True" align="right" width="10%"/>
+<img src="images/logo.png?raw=True" align="right" width="20%"/>
 
 # CoverUp: Automatically Generating Higher-Coverage Test Suites with AI
 
@@ -9,7 +9,6 @@ at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
 ![pyversions](https://img.shields.io/pypi/pyversions/coverup)
 
 ## About CoverUp
-
 CoverUp automatically generates tests that ensure that more of your code is tested
 (that is, it increases its [code coverage](https://en.wikipedia.org/wiki/Code_coverage)).
 CoverUp can also create a test suite from scratch if you don't yet have one.
