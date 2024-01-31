@@ -148,13 +148,13 @@ def log_write(seg: CodeSegment, m: str) -> None:
 
 def disable_interfering_tests():
     while True:
-        print("Checking tests...")
+        print("Checking test suite...  ", end='')
         btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
                              trace=(print if args.debug else None))
         failing_test = btf.run_tests()
 
         if not failing_test:
-            print("Tests ok!")
+            print("tests ok!")
             break
 
         print(f"{failing_test} is failing, looking for culprit(s)...")
@@ -585,10 +585,10 @@ def main():
     # --- (1) load or measure initial coverage, figure out segmentation ---
 
     if args.checkpoint and (state := State.load_checkpoint(args.checkpoint)):
-        print("Continuing from checkpoint.")
+        print("Continuing from checkpoint;  ", end='')
     else:
         try:
-            print("Measuring test suite coverage...")
+            print("Measuring test suite coverage...  ", end='')
             coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
                                               pytest_args=args.pytest_args)
         except subprocess.CalledProcessError as e:
@@ -596,6 +596,11 @@ def main():
             return 1
 
         state = State(coverage)
+
+    coverage = state.get_initial_coverage()
+
+    print(f"initial coverage: {coverage['summary']['percent_covered']:.1f}%")
+    # TODO also show running coverage estimate
 
     segments = sorted(get_missing_coverage(state.get_initial_coverage(), line_limit=args.line_limit),
                       key=lambda seg: seg.missing_count(), reverse=True)
@@ -606,7 +611,7 @@ def main():
 
     # --- (2) prompt for tests ---
 
-    print("Prompting for tests to increase coverage...")
+    print(f"Prompting {args.model} for tests to increase coverage...")
 
     async def work_segment(seg: CodeSegment) -> None:
         if await improve_coverage(seg):
@@ -662,6 +667,15 @@ def main():
     disable_interfering_tests()
 
     # --- (4) final remarks ---
+
+    try:
+        # TODO have suite checking step also measure coverage, to save on a suite run
+        print("Measuring test suite coverage...  ", end='')
+        coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
+                                          pytest_args=args.pytest_args)
+        print(f"end coverage: {coverage['summary']['percent_covered']:.1f}%")
+    except subprocess.CalledProcessError as e:
+        print("Error measuring coverage:\n" + str(e.stderr, 'UTF-8'))
 
     if required := get_required_modules():
         # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
