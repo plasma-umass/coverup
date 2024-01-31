@@ -12,7 +12,8 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: Apache Software License",
-    "Operating System :: POSIX :: Linux"
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X"
 ]
 requires-python = ">=3.10"
 dependencies = [
