@@ -148,8 +148,9 @@ def log_write(seg: CodeSegment, m: str) -> None:
 
 def disable_interfering_tests():
     while True:
-        print("Running tests...")
-        btf = BadTestsFinder(args.tests_dir, pytest_args=args.pytest_args, trace=(print if args.debug else None))
+        print("Checking tests...")
+        btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                             trace=(print if args.debug else None))
         failing_test = btf.run_tests()
 
         if not failing_test:
@@ -540,6 +541,13 @@ Modify it to correct that; respond only with the complete Python code in backtic
     return True # finished
 
 
+def add_to_pythonpath(source_dir: Path):
+    import os
+    parent = str(source_dir.parent)
+    os.environ['PYTHONPATH'] = parent + (f":{os.environ['PYTHONPATH']}" if 'PYTHONPATH' in os.environ else "")
+    sys.path.insert(0, parent)
+
+
 def main():
     from collections import defaultdict
     import os
@@ -570,6 +578,9 @@ def main():
         openai.organization=os.environ['OPENAI_ORGANIZATION']
 
     log_write('startup', f"Command: {' '.join(sys.argv)}")
+
+    # add source dir to paths so that the module doesn't need to be installed to be worked on
+    add_to_pythonpath(args.source_dir)
 
     # --- (1) load or measure initial coverage, figure out segmentation ---
 

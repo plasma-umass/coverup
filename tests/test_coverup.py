@@ -1,5 +1,6 @@
 from pathlib import Path
 from coverup import coverup
+import pytest
 
 def test_clean_error_failure():
     error = """
@@ -129,3 +130,32 @@ foo()
 
 bar()
 """)
+
+
+@pytest.mark.parametrize("pythonpath_exists", [True, False])
+def test_add_to_pythonpath(pythonpath_exists):
+    import sys, os
+    saved_pythonpath = os.environ.get('PYTHONPATH')
+    saved_syspath = list(sys.path)
+
+    try:
+        if pythonpath_exists:
+            os.environ['PYTHONPATH'] = 'foo:bar'
+        else:
+            del os.environ['PYTHONPATH']
+
+        coverup.add_to_pythonpath(Path("baz/mymodule"))
+
+        if pythonpath_exists:
+            assert os.environ['PYTHONPATH'] == 'baz:foo:bar'
+        else:
+            assert 'PYTHONPATH' in os.environ
+
+        assert sys.path == ['baz'] + saved_syspath
+
+    finally:
+        if saved_pythonpath:
+            os.environ['PYTHONPATH'] = saved_pythonpath
+        else:
+            del os.environ['PYTHONPATH']
+        sys.path = saved_syspath
