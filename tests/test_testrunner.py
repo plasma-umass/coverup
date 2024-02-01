@@ -20,13 +20,13 @@ def make_failing_suite(tests_dir: Path, fail_collect: bool):
         seq2p(tests_dir, seq).write_text('def test_foo(): pass')
 
     culprit = seq2p(tests_dir, 3)
-    culprit.write_text("import sys\n" + "sys.hexversion=0")
+    culprit.write_text("import sys\n" + "sys.foobar = True")
 
     failing = seq2p(tests_dir, 6)
     if fail_collect:
-        failing.write_text("import sys\n" + "assert sys.hexversion != 0\n" + "def test_foo(): pass")
+        failing.write_text("import sys\n" + "assert not getattr(sys, 'foobar', False)\n" + "def test_foo(): pass")
     else:
-        failing.write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
+        failing.write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
 
     return failing, culprit
 
@@ -100,10 +100,10 @@ def test_find_culprit_multiple_failures(tmpdir):
     tests_dir = Path(tmpdir)
 
     for seq in range(10):
-        seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
+        seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
 
     culprit = seq2p(tests_dir, 3)
-    culprit.write_text("import sys\n" + "sys.hexversion=0")
+    culprit.write_text("import sys\n" + "def test_foo(): sys.foobar = True")
 
     with pytest.raises(tr.EarlierFailureException):
         btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
