@@ -566,6 +566,9 @@ def main():
         print(f'Directory "{args.tests_dir}" does not exist. Please specify the correct one or create it.')
         return 1
 
+    # add source dir to paths so that the module doesn't need to be installed to be worked on
+    add_to_pythonpath(args.source_dir)
+
     if args.only_disable_interfering_tests:
         disable_interfering_tests()
         return
@@ -585,9 +588,6 @@ def main():
         openai.organization=os.environ['OPENAI_ORGANIZATION']
 
     log_write('startup', f"Command: {' '.join(sys.argv)}")
-
-    # add source dir to paths so that the module doesn't need to be installed to be worked on
-    add_to_pythonpath(args.source_dir)
 
     # --- (1) load or measure initial coverage, figure out segmentation ---
 
