@@ -1,4 +1,4 @@
-<img src="images/logo.png?raw=True" align="right" width="20%"/>
+<img src="https://github.com/plasma-umass/coverup/blob/main/images/logo.png?raw=True" align="right" width="20%"/>
 
 # CoverUp: Automatically Generating Higher-Coverage Test Suites with AI
 
@@ -71,7 +71,7 @@ running CoverUp with [Docker](https://www.docker.com/).
 
 ## Evaluation
 
-<img src="images/comparison.png?raw=True" align="right" width="65%"/>
+<img src="https://github.com/plasma-umass/coverup/blob/main/images/comparison.png?raw=True" align="right" width="65%"/>
 
 The graph shows CoverUp in comparison to the state-of-the-art [CodaMosa](https://www.carolemieux.com/codamosa_icse23.pdf),
 which itself uses LLM queries to improve on the [Pynguin](https://github.com/se2p/pynguin) test generator.
