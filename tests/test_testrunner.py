@@ -9,6 +9,48 @@ def test_measure_suite_coverage_empty_dir(tmpdir):
     assert coverage['summary']['covered_lines'] == 0
 
 
+def seq2p(tests_dir, seq):
+    return tests_dir / f"test_coverup_{seq}.py"
+
+
+def make_failing_suite(tests_dir: Path, fail_collect: bool):
+    """In a suite with 10 tests, test 6 fails; test 3 doesn't fail, but causes 6 to fail."""
+
+    for seq in range(10):
+        seq2p(tests_dir, seq).write_text('def test_foo(): pass')
+
+    culprit = seq2p(tests_dir, 3)
+    culprit.write_text("import sys\n" + "sys.hexversion=0")
+
+    failing = seq2p(tests_dir, 6)
+    if fail_collect:
+        failing.write_text("import sys\n" + "assert sys.hexversion != 0\n" + "def test_foo(): pass")
+    else:
+        failing.write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
+
+    return failing, culprit
+
+
+@pytest.mark.parametrize("fail_collect", [True, False])
+def test_measure_suite_coverage_test_fails(tmpdir, fail_collect):
+
+    tests_dir = Path(tmpdir)
+
+    failing, culprit = make_failing_suite(tests_dir, fail_collect)
+
+#    with pytest.raises(subprocess.CalledProcessError) as e:
+#        tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
+
+    try:
+        tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
+        assert False, "subprocess.CalledProcessError expected"
+
+    except subprocess.CalledProcessError as e:
+        failed = tr.parse_failed_test(tests_dir, e)
+
+    assert failing == failed
+
+
 def test_finds_tests_in_subdir(tmpdir):
     tests_dir = Path(tmpdir)
 
@@ -22,30 +64,14 @@ def test_finds_tests_in_subdir(tmpdir):
     assert test_in_subdir in btf.all_tests
 
 
-@pytest.mark.parametrize("fail_load", [True, False])
-def test_run_tests(tmpdir, fail_load):
+@pytest.mark.parametrize("fail_collect", [True, False])
+def test_run_tests(tmpdir, fail_collect):
     tests_dir = Path(tmpdir)
 
-    def seq2p(seq):
-        return tests_dir / f"test_coverup_{seq}.py"
-
-    all_tests = {seq2p(seq) for seq in range(10)}
-    for t in all_tests:
-        t.write_text('def test_foo(): pass')
-
-    culprit = seq2p(3)
-    culprit.write_text("import sys\n" + "sys.hexversion=0")
-
-    failing = seq2p(6)
-    if fail_load:
-        failing.write_text("import sys\n" + "assert sys.hexversion != 0\n" + "def test_foo(): pass")
-    else:
-        failing.write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
+    failing, _ = make_failing_suite(tests_dir, fail_collect)
 
     btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    failed = btf.run_tests()
-
-    assert failed == failing
+    assert failing == btf.run_tests()
 
 
 def test_run_tests_no_tests(tmpdir):
@@ -58,28 +84,36 @@ def test_run_tests_no_tests(tmpdir):
     assert failed is None
 
 
-@pytest.mark.parametrize("fail_load", [True, False])
-def test_find_culprit(tmpdir, fail_load):
+@pytest.mark.parametrize("fail_collect", [True, False])
+def test_find_culprit(tmpdir, fail_collect):
     tests_dir = Path(tmpdir)
 
-    def seq2p(seq):
-        return tests_dir / f"test_coverup_{seq}.py"
-
-    all_tests = {seq2p(seq) for seq in range(10)}
-    for t in all_tests:
-        t.write_text('def test_foo(): pass')
-
-    culprit = seq2p(3)
-    culprit.write_text("import sys\n" + "sys.hexversion=0")
-
-    failing = seq2p(6)
-    if fail_load:
-        failing.write_text("import sys\n" + "assert sys.hexversion != 0\n" + "def test_foo(): pass")
-    else:
-        failing.write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
+    failing, culprit = make_failing_suite(tests_dir, fail_collect)
 
     btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
 
-    assert not btf.test({failing})
+    assert not btf.run_tests({culprit})
+    assert {culprit} == btf.find_culprit(failing)
 
-    assert {seq2p(3)} == btf.find_culprit(failing)
+
+@pytest.mark.skip(reason="no good handling for this yet, it takes a long time")
+def test_find_culprit_hanging_collect(tmpdir):
+    tests_dir = Path(tmpdir)
+
+    all_tests = {seq2p(tests_dir, seq) for seq in range(10)}
+    for t in all_tests:
+        t.write_text('def test_foo(): pass')
+
+    culprit = seq2p(tests_dir, 3)
+    culprit.write_text("""\
+import pytest
+
+def test_foo(): pass
+
+pytest.main(["--verbose"])
+pytest.main(["--verbose"])
+pytest.main(["--verbose"])
+""")
+
+    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+    btf.run_tests()

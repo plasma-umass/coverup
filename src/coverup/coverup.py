@@ -146,16 +146,23 @@ def log_write(seg: CodeSegment, m: str) -> None:
     log_file.write(f"---- {datetime.now().isoformat(timespec='seconds')} {seg} ----\n{m}\n")
 
 
-def disable_interfering_tests():
+def disable_interfering_tests() -> dict:
+    """While the test suite fails, disables any interfering tests.
+       If the test suite succeeds, returns the coverage observed."""
+
     while True:
         print("Checking test suite...  ", end='')
+        try:
+            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
+                                              pytest_args=args.pytest_args)
+            print("tests ok!")
+            return coverage
+
+        except subprocess.CalledProcessError as e:
+            failing_test = parse_failed_test(args.tests_dir, e)
+
         btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
                              trace=(print if args.debug else None))
-        failing_test = btf.run_tests()
-
-        if not failing_test:
-            print("tests ok!")
-            break
 
         print(f"{failing_test} is failing, looking for culprit(s)...")
 
@@ -664,18 +671,10 @@ def main():
 
     # --- (3) check resulting test suite ---
 
-    disable_interfering_tests()
+    coverage = disable_interfering_tests()
+    print(f"End coverage: {coverage['summary']['percent_covered']:.1f}%")
 
     # --- (4) final remarks ---
-
-    try:
-        # TODO have suite checking step also measure coverage, to save on a suite run
-        print("Measuring test suite coverage...  ", end='')
-        coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
-                                          pytest_args=args.pytest_args)
-        print(f"end coverage: {coverage['summary']['percent_covered']:.1f}%")
-    except subprocess.CalledProcessError as e:
-        print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8'))
 
     if required := get_required_modules():
         # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify

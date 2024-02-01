@@ -5,6 +5,7 @@ import pytest
 import typing as T
 import sys
 import json
+import re
 from .delta import DeltaDebugger
 
 
@@ -47,13 +48,17 @@ class ParseError(Exception):
     pass
 
 
-def parse_failed_test(p: subprocess.CompletedProcess) -> Path:
-    import re
-
+def parse_failed_test(tests_dir: Path, p: (subprocess.CompletedProcess, subprocess.CalledProcessError)) -> Path:
     output = str(p.stdout, 'UTF-8')
     if (m := re.search("^===+ short test summary info ===+\n" +\
                        "^(?:ERROR|FAILED) ([^\\s:]+)", output, re.MULTILINE)):
-        return Path(m.group(1))
+
+        failed = Path(m.group(1))
+        if tests_dir.is_absolute():
+            # pytest sometimes makes absolute paths into relative ones by adding ../../.. to root...
+            failed = failed.resolve()
+
+        return failed
 
     raise ParseError(f"Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n{output}")
 
@@ -81,10 +86,6 @@ class BadTestsFinder(DeltaDebugger):
         """Runs the tests, by default all, returning the first one that fails, or None.
            Throws RuntimeError if unable to parse pytest's output.
         """
-        import tempfile
-        import subprocess
-        import sys
-        import pytest
 
         test_set = tests_to_run if tests_to_run else self.all_tests
 
@@ -115,11 +116,7 @@ class BadTestsFinder(DeltaDebugger):
                 if self.trace: self.trace(f"tests passed")
                 return None
 
-            first_failing = parse_failed_test(p)
-
-            if tmpdir.is_absolute():
-                # pytest sometimes makes absolute paths into relative ones by adding ../../.. to root...
-                first_failing = first_failing.resolve()
+            first_failing = parse_failed_test(tmpdir, p)
 
             # bring it back to its normal path
             first_failing = self.tests_dir / first_failing.relative_to(tmpdir)
