@@ -169,9 +169,16 @@ def disable_interfering_tests() -> dict:
         if btf.run_tests({failing_test}) is not None:
             print(f"{failing_test} fails by itself(!)")
             culprits = {failing_test}
-
         else:
-            culprits = btf.find_culprit(failing_test)
+            test_set = None
+            while True:
+                try:
+                    culprits = btf.find_culprit(failing_test, test_set=test_set)
+                    break
+                except EarlierFailureException as ef:
+                    print(f"{ef.failed} also fails, looking into that first...")
+                    failing_test = ef.failed
+                    test_set = ef.test_set
 
         for c in culprits:
             print(f"Disabling {c}")

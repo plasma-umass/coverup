@@ -33,7 +33,7 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='')
     """Runs an entire test suite and returns the coverage obtained."""
     with tempfile.NamedTemporaryFile() as j:
         p = subprocess.run((f"{sys.executable} -m slipcover --source {source_dir} --branch --json --out {j.name} " +
-                            f"-m pytest {pytest_args} -qq --disable-warnings {tests_dir}").split(),
+                            f"-m pytest {pytest_args} -qq -x --disable-warnings {tests_dir}").split(),
                            check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
         if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
@@ -46,6 +46,12 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='')
 
 class ParseError(Exception):
     pass
+
+class EarlierFailureException(Exception):
+    def __init__(self, failed, test_set):
+        super().__init__(f'Earlier test failed: {failed}')
+        self.failed = failed
+        self.test_set = test_set
 
 
 def parse_failed_test(tests_dir: Path, p: (subprocess.CompletedProcess, subprocess.CalledProcessError)) -> Path:
@@ -127,14 +133,22 @@ class BadTestsFinder(DeltaDebugger):
 
 
     def test(self, test_set: set, **kwargs) -> bool:
-        if first_failing := self.run_tests(test_set):
-            # If given, check that it's target_test that failed: a different test may have failed.
-            # If a test that comes after target_test fails, then this is really a success; but if it's a test
-            # that comes before target_test, this may be "inconsistent" (in delta debugging terms).
-            if not (target_test := kwargs.get('target_test')) or first_failing == target_test:
-                return True # "interesting"/"reproduced"
+        if not (first_failing := self.run_tests(test_set)):
+            return False
 
-        return False
+        # If given, check that it's target_test that failed: a different test may have failed.
+        # If a test that comes after target_test fails, then this is really a success; but if it's a test
+        # that comes before target_test, this is "inconsistent" (in delta debugging terms). We side
+        # step the issue by re-starting the process looking for what made first_failing fail.
+        if target_test := kwargs.get('target_test'):
+            # FIXME compare in pytest order (with subdirectories last)
+            if first_failing < target_test:
+                raise EarlierFailureException(first_failing, test_set)
+
+            if first_failing != target_test:
+                return False
+
+        return True # "interesting"/"reproduced"
 
 
     def find_culprit(self, failing_test: Path) -> T.Set[Path]:

@@ -96,6 +96,20 @@ def test_find_culprit(tmpdir, fail_collect):
     assert {culprit} == btf.find_culprit(failing)
 
 
+def test_find_culprit_multiple_failures(tmpdir):
+    tests_dir = Path(tmpdir)
+
+    for seq in range(10):
+        seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert sys.hexversion != 0")
+
+    culprit = seq2p(tests_dir, 3)
+    culprit.write_text("import sys\n" + "sys.hexversion=0")
+
+    with pytest.raises(tr.EarlierFailureException):
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        btf.find_culprit(seq2p(tests_dir, 6))
+
+
 @pytest.mark.skip(reason="no good handling for this yet, it takes a long time")
 def test_find_culprit_hanging_collect(tmpdir):
     tests_dir = Path(tmpdir)
