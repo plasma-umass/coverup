@@ -151,7 +151,7 @@ class BadTestsFinder(DeltaDebugger):
         return True # "interesting"/"reproduced"
 
 
-    def find_culprit(self, failing_test: Path) -> T.Set[Path]:
+    def find_culprit(self, failing_test: Path, *, test_set = None) -> T.Set[Path]:
         """Returns the set of tests causing 'failing_test' to fail."""
         assert failing_test in self.all_tests
 
@@ -163,4 +163,5 @@ class BadTestsFinder(DeltaDebugger):
 #        test_set = set(sorted_tests[:sorted_tests.index(failing_test)])
 #        assert self.test(test_set), "Test set doesn't fail!"
 
-        return self.debug(changes=self.all_tests - {failing_test}, rest={failing_test}, target_test=failing_test)
+        changes = set(test_set if test_set is not None else self.all_tests) - {failing_test}
+        return self.debug(changes=changes, rest={failing_test}, target_test=failing_test)
