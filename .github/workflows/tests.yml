@@ -27,7 +27,7 @@ jobs:
 
     - name: install dependencies
       run: |
-        python3 -m pip install pytest
+        python3 -m pip install pytest hypothesis
         python3 -m pip install -e .
 
     - name: run tests
