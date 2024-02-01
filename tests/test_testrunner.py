@@ -103,7 +103,7 @@ def test_find_culprit_multiple_failures(tmpdir):
         seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
 
     culprit = seq2p(tests_dir, 3)
-    culprit.write_text("import sys\n" + "def test_foo(): sys.foobar = True")
+    culprit.write_text("import sys\n" + "sys.foobar = True")
 
     with pytest.raises(tr.EarlierFailureException):
         btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
