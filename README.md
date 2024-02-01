@@ -55,7 +55,7 @@ Prompting gpt-4-1106-preview for tests to increase coverage...
 Checking test suite...  tests/test_coverup_2.py is failing, looking for culprit(s)...
 Disabling tests/test_coverup_19.py
 Checking test suite...  tests ok!
-Measuring test suite coverage...  end coverage: 94.2%
+End coverage: 94.2%
 ```
 In under 3 minutes, CoverUp increases Flask's test coverage from 90.2% to 94.2%.
 It detected that one of the new tests, `test_coverup_19`, was causing another test
