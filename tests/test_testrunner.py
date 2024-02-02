@@ -38,17 +38,10 @@ def test_measure_suite_coverage_test_fails(tmpdir, fail_collect):
 
     failing, culprit = make_failing_suite(tests_dir, fail_collect)
 
-#    with pytest.raises(subprocess.CalledProcessError) as e:
-#        tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
-
-    try:
+    with pytest.raises(subprocess.CalledProcessError) as einfo:
         tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
-        assert False, "subprocess.CalledProcessError expected"
 
-    except subprocess.CalledProcessError as e:
-        failed = tr.parse_failed_test(tests_dir, e)
-
-    assert failing == failed
+    failing == tr.parse_failed_test(tests_dir, einfo.value)
 
 
 def test_finds_tests_in_subdir(tmpdir):
