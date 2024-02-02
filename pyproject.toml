@@ -2,7 +2,7 @@
 name = "CoverUp"
 description = "LLM-powered test coverage improver"
 readme = "README.md"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
     { name="Juan Altmayer Pizzorno", email="juan@altmayer.com" },
     { name="Emery Berger", email="emery.berger@gmail.com" }
