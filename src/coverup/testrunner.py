@@ -6,7 +6,7 @@ import typing as T
 import sys
 import json
 import re
-from .delta import DeltaDebugger
+from .delta import DeltaDebugger, _compact
 
 
 def measure_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None):
@@ -47,26 +47,21 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='')
 class ParseError(Exception):
     pass
 
-class EarlierFailureException(Exception):
-    def __init__(self, failed, test_set):
-        super().__init__(f'Earlier test failed: {failed}')
-        self.failed = failed
-        self.test_set = test_set
 
-
-def parse_failed_test(tests_dir: Path, p: (subprocess.CompletedProcess, subprocess.CalledProcessError)) -> Path:
+def parse_failed_tests(tests_dir: Path, p: (subprocess.CompletedProcess, subprocess.CalledProcessError)) -> T.List[Path]:
+    # FIXME use --junitxml or --report-log
     output = str(p.stdout, 'UTF-8')
-    if (m := re.search("^===+ short test summary info ===+\n" +\
-                       "^(?:ERROR|FAILED) ([^\\s:]+)", output, re.MULTILINE)):
+    if (m := re.search(r"\n===+ short test summary info ===+\n((?:ERROR|FAILED).*)", output, re.DOTALL)):
+        summary = m.group(1)
+        failures = [Path(f) for f in re.findall(r"^(?:ERROR|FAILED) ([^\s:]+)", summary, re.MULTILINE)]
 
-        failed = Path(m.group(1))
         if tests_dir.is_absolute():
             # pytest sometimes makes absolute paths into relative ones by adding ../../.. to root...
-            failed = failed.resolve()
+            failures = [f.resolve() for f in failures]
 
-        return failed
+        return failures
 
-    raise ParseError(f"Unable to parse failing test out of pytest output. RC={p.returncode}; output:\n{output}")
+    raise ParseError(f"Unable to parse failing tests out of pytest output. RC={p.returncode}; output:\n{output}")
 
 
 class BadTestsFinder(DeltaDebugger):
@@ -104,7 +99,7 @@ class BadTestsFinder(DeltaDebugger):
                 if src_file.is_dir():
                     link_tree(src_file, dst_file)
                 else:
-                    if src_file not in self.all_tests or src_file in test_set:
+                    if (src_file not in self.all_tests) or (src_file in test_set):
                         dst_file.hardlink_to(src_file)
 
         assert self.tests_dir.parent != self.tests_dir # we need a parent directory
@@ -114,39 +109,31 @@ class BadTestsFinder(DeltaDebugger):
             tmpdir = Path(tmpdir)
             link_tree(self.tests_dir, tmpdir)
 
-            p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -x -qq --disable-warnings " +\
+            p = subprocess.run((f"{sys.executable} -m pytest {self.pytest_args} -qq --disable-warnings " +\
                                 f"--rootdir {tmpdir} {tmpdir}").split(),
                                check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=2*60*60)
 
             if p.returncode in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
                 if self.trace: self.trace(f"tests passed")
-                return None
-
-            first_failing = parse_failed_test(tmpdir, p)
+                return set()
 
             # bring it back to its normal path
-            first_failing = self.tests_dir / first_failing.relative_to(tmpdir)
+            failing = set(self.tests_dir / f.relative_to(tmpdir) for f in parse_failed_tests(tmpdir, p))
 
-            if self.trace: self.trace(f"tests rc={p.returncode} first_failing={first_failing}")
+            if self.trace:
+                self.trace(f"tests rc={p.returncode} failing={_compact(failing)}\n")
+#                self.trace(str(p.stdout, 'UTF-8'))
 
-            return first_failing
+            return failing
 
 
     def test(self, test_set: set, **kwargs) -> bool:
-        if not (first_failing := self.run_tests(test_set)):
+        if not (failing_tests := self.run_tests(test_set)):
             return False
 
-        # If given, check that it's target_test that failed: a different test may have failed.
-        # If a test that comes after target_test fails, then this is really a success; but if it's a test
-        # that comes before target_test, this is "inconsistent" (in delta debugging terms). We side
-        # step the issue by re-starting the process looking for what made first_failing fail.
-        if target_test := kwargs.get('target_test'):
-            # FIXME compare in pytest order (with subdirectories last)
-            if first_failing < target_test:
-                raise EarlierFailureException(first_failing, test_set)
-
-            if first_failing != target_test:
-                return False
+        # Other tests may fail; we need to know if "our" test failed.
+        if kwargs.get('target_test') not in failing_tests:
+            return False
 
         return True # "interesting"/"reproduced"
 

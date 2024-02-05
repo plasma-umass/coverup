@@ -41,7 +41,7 @@ def test_measure_suite_coverage_test_fails(tmpdir, fail_collect):
     with pytest.raises(subprocess.CalledProcessError) as einfo:
         tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
 
-    failing == tr.parse_failed_test(tests_dir, einfo.value)
+    assert [failing] == tr.parse_failed_tests(tests_dir, einfo.value)
 
 
 def test_finds_tests_in_subdir(tmpdir):
@@ -64,8 +64,23 @@ def test_run_tests(tmpdir, fail_collect):
     failing, _ = make_failing_suite(tests_dir, fail_collect)
 
     btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    assert failing == btf.run_tests()
+    assert {failing} == btf.run_tests()
 
+
+def test_run_tests_multiple_failures(tmpdir):
+    tests_dir = Path(tmpdir)
+
+    for seq in range(10):
+        seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
+
+    culprit = seq2p(tests_dir, 3)
+    culprit.write_text("import sys\n" + "sys.foobar = True")
+
+    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+    failing = btf.run_tests()
+
+    for seq in range(10):
+        if seq != 3: assert seq2p(tests_dir, seq) in failing
 
 def test_run_tests_no_tests(tmpdir):
     tests_dir = Path(tmpdir)
@@ -74,7 +89,7 @@ def test_run_tests_no_tests(tmpdir):
 
     btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
     failed = btf.run_tests()
-    assert failed is None
+    assert failed == set()
 
 
 @pytest.mark.parametrize("fail_collect", [True, False])
@@ -98,9 +113,8 @@ def test_find_culprit_multiple_failures(tmpdir):
     culprit = seq2p(tests_dir, 3)
     culprit.write_text("import sys\n" + "sys.foobar = True")
 
-    with pytest.raises(tr.EarlierFailureException):
-        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-        btf.find_culprit(seq2p(tests_dir, 6))
+    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+    assert {culprit} == btf.find_culprit(seq2p(tests_dir, 6))
 
 
 @pytest.mark.skip(reason="no good handling for this yet, it takes a long time")

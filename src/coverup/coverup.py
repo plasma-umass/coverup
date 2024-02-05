@@ -159,10 +159,13 @@ def disable_interfering_tests() -> dict:
             return coverage
 
         except subprocess.CalledProcessError as e:
-            failing_test = parse_failed_test(args.tests_dir, e)
+            failing_test = parse_failed_tests(args.tests_dir, e)[0]
 
         btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
                              trace=(print if args.debug else None))
+
+#        print(f"{failing_test} is failing, disabling it.")
+#        failing_test.rename(failing_test.parent / ("disabled_" + failing_test.name))
 
         print(f"{failing_test} is failing, looking for culprit(s)...")
 
@@ -170,15 +173,7 @@ def disable_interfering_tests() -> dict:
             print(f"{failing_test} fails by itself(!)")
             culprits = {failing_test}
         else:
-            test_set = None
-            while True:
-                try:
-                    culprits = btf.find_culprit(failing_test, test_set=test_set)
-                    break
-                except EarlierFailureException as ef:
-                    print(f"{ef.failed} also fails, looking into that first...")
-                    failing_test = ef.failed
-                    test_set = ef.test_set
+            culprits = btf.find_culprit(failing_test, test_set=test_set)
 
         for c in culprits:
             print(f"Disabling {c}")
