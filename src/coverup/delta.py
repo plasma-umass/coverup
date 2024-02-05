@@ -46,20 +46,20 @@ class DeltaDebugger(abc.ABC):
 
 
     def debug(self, changes: set, rest: set = set(), **kwargs) -> set:
-        if self.trace: self.trace(f"debug(changes={_compact(changes)}; rest={_compact(rest)})")
+        if self.trace: self.trace(f"debug(changes={_compact(changes)}; rest={_compact(rest)}; kwargs={kwargs})")
 
         len_changes = len(changes)
         if len_changes == 1: return changes # got it
 
-        change_list = list(changes)
+        change_list = sorted(changes)
 
         c1 = set(change_list[:len_changes//2])
         if self.test(c1.union(rest), **kwargs):
-            return self.debug(c1, rest)    # in 1st half
+            return self.debug(c1, rest, **kwargs)    # in 1st half
 
         c2 = set(change_list[len_changes//2:])
         if self.test(c2.union(rest), **kwargs):
-            return self.debug(c2, rest)    # in 2nd half
+            return self.debug(c2, rest, **kwargs)    # in 2nd half
 
         # "interference"
         return self.debug(c1, c2.union(rest), **kwargs).union(
