@@ -1,7 +1,8 @@
 import pytest
 from hypothesis import given, strategies as st
 from pathlib import Path
-import coverup.utils as utils
+from coverup import utils
+import subprocess
 
 def test_format_ranges():
     assert "" == utils.format_ranges(set(), set())
@@ -27,3 +28,28 @@ def test_lines_branches_do():
 
     # if a line doesn't execute, neither do the branches that touch it...
     assert "lines 123-125 do" == utils.lines_branches_do({123,124,125}, set(), {(123,124), (10,125)})
+
+
+@pytest.mark.parametrize('check', [False, True])
+@pytest.mark.asyncio
+async def test_subprocess_run(check):
+    p = await utils.subprocess_run(['/bin/echo', 'hi!'], check=check)
+    assert p.stdout == b"hi!\n"
+
+
+@pytest.mark.asyncio
+async def test_subprocess_run_fails_checked():
+    with pytest.raises(subprocess.CalledProcessError) as e:
+        await utils.subprocess_run(['/usr/bin/false'], check=True)
+
+
+@pytest.mark.asyncio
+async def test_subprocess_run_fails_not_checked():
+    p = await utils.subprocess_run(['/usr/bin/false'])
+    assert p.returncode != 0
+
+
+@pytest.mark.asyncio
+async def test_subprocess_run_timeout():
+    with pytest.raises(subprocess.TimeoutExpired) as e:
+        await utils.subprocess_run(['/bin/sleep', '2'], timeout=1)

@@ -1,5 +1,6 @@
 from pathlib import Path
 import typing as T
+import subprocess
 
 
 class TemporaryOverwrite:
@@ -66,3 +67,27 @@ def lines_branches_do(lines: T.Set[int], neg_lines: T.Set[int], branches: T.Set[
 
     s += " does" if len(lines)+len(relevant_branches) == 1 else " do"
     return s
+
+
+async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int] = None) -> subprocess.CompletedProcess:
+    """Provides an asynchronous version of subprocess.run"""
+    import asyncio
+
+    process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
+                                                   stderr=asyncio.subprocess.STDOUT)
+
+    try:
+        if timeout is not None:
+            output, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        else:
+            output, _ = await process.communicate()
+
+    except asyncio.TimeoutError:
+        process.terminate()
+        await process.wait()
+        raise subprocess.TimeoutExpired(args, timeout, output=process.stdout) from None
+
+    if check and process.returncode != 0:
+        raise subprocess.CalledProcessError(process.returncode, args, output=process.stdout)
+
+    return subprocess.CompletedProcess(args=args, returncode=process.returncode, stdout=output)
