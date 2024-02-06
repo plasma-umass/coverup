@@ -85,9 +85,9 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
     except asyncio.TimeoutError:
         process.terminate()
         await process.wait()
-        raise subprocess.TimeoutExpired(args, timeout, output=process.stdout) from None
+        raise subprocess.TimeoutExpired(args, timeout) from None
 
     if check and process.returncode != 0:
-        raise subprocess.CalledProcessError(process.returncode, args, output=process.stdout)
+        raise subprocess.CalledProcessError(process.returncode, args, output=output)
 
     return subprocess.CompletedProcess(args=args, returncode=process.returncode, stdout=output)

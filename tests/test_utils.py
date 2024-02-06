@@ -42,6 +42,8 @@ async def test_subprocess_run_fails_checked():
     with pytest.raises(subprocess.CalledProcessError) as e:
         await utils.subprocess_run(['/usr/bin/false'], check=True)
 
+    assert e.value.stdout == b""
+
 
 @pytest.mark.asyncio
 async def test_subprocess_run_fails_not_checked():
