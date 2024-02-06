@@ -498,12 +498,14 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 return False # not finished: needs a missing module
 
         try:
-            result = measure_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=args.pytest_args,
-                                      log_write=lambda msg: log_write(seg, msg))
+            result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                                 log_write=lambda msg: log_write(seg, msg))
 
         except subprocess.TimeoutExpired:
             log_write(seg, "measure_coverage timed out")
-            return False # try again next time
+            # FIXME is the built-in timeout reasonable? Do we prompt for a faster test?
+            # We don't want slow tests, but there may not be any way around it.
+            return True
 
         except subprocess.CalledProcessError as e:
             state.inc_counter('F')

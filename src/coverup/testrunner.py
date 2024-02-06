@@ -7,9 +7,10 @@ import sys
 import json
 import re
 from .delta import DeltaDebugger, _compact
+from .utils import subprocess_run
 
 
-def measure_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None):
+async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None):
     """Runs a given test and returns the coverage obtained."""
     with tempfile.NamedTemporaryFile(prefix="tmp_test_", suffix='.py',
                                      dir=str(tests_dir), mode="w") as t:
@@ -18,9 +19,9 @@ def measure_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=No
 
         with tempfile.NamedTemporaryFile() as j:
             # -qq to cut down on tokens
-            p = subprocess.run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
-                                f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
-                               check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+            p = await subprocess_run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
+                                      f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
+                                      check=True, timeout=60)
             if log_write:
                 log_write(str(p.stdout, 'UTF-8'))
 
