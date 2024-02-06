@@ -154,23 +154,23 @@ def disable_interfering_tests() -> dict:
         print("Checking test suite...  ", end='')
         try:
             coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
-                                              pytest_args=args.pytest_args)
+                                              pytest_args=args.pytest_args,
+                                              trace=(print if args.debug else None))
             print("tests ok!")
             return coverage
 
         except subprocess.CalledProcessError as e:
             failing_test = parse_failed_tests(args.tests_dir, e)[0]
 
+        btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                             trace=(print if args.debug else None))
         if True:
             # just disable failing test(s) while we work on BTF
-            print("test failed")
-            culprits = {failing_test}
+            print(f"failed ({failing_test}).  Looking for failing tests(s) to disable...")
+            culprits = btf.run_tests()
 
         else:
             print(f"{failing_test} is failing, looking for culprit(s)...")
-            btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
-                                 trace=(print if args.debug else None))
-
             if btf.run_tests({failing_test}) == {failing_test}:
                 print(f"{failing_test} fails by itself(!)")
                 culprits = {failing_test}

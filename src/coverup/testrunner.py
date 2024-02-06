@@ -29,19 +29,21 @@ def measure_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=No
     return cov["files"]
 
 
-def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args=''):
+def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None):
     """Runs an entire test suite and returns the coverage obtained."""
     with tempfile.NamedTemporaryFile() as j:
         p = subprocess.run((f"{sys.executable} -m slipcover --source {source_dir} --branch --json --out {j.name} " +
                             f"-m pytest {pytest_args} -qq -x --disable-warnings {tests_dir}").split(),
                            check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
+        if trace:
+            trace(f"tests rc={p.returncode}\n")
+            trace(str(p.stdout, 'UTF-8'))
+
         if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
             p.check_returncode()
 
-#        log_write(seg, str(p.stdout, 'UTF-8'))
         return json.load(j)
-
 
 
 class ParseError(Exception):
