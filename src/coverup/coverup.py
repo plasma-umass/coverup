@@ -7,9 +7,9 @@ import typing as T
 import re
 import sys
 from datetime import datetime
-from coverup.llm import *
-from coverup.segment import *
-from coverup.testrunner import *
+from .llm import *
+from .segment import *
+from .testrunner import *
 
 
 PREFIX = 'coverup'
@@ -438,6 +438,8 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
     module_name = get_module_name(seg.filename, args.source_dir)
 
+    # TODO add "you are an expert python test-driven developer" or such
+    # TODO reinforce use of monkeypatch or other self-cleaning techniques
     messages = [{"role": "user",
                  "content": f"""
 The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
