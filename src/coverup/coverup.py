@@ -298,12 +298,18 @@ class State:
         self.coverage = initial_coverage
         self.usage = {'prompt_tokens': 0, 'completion_tokens': 0}
         self.counters = {k:0 for k in PROGRESS_COUNTERS}
+        self.final_coverage = None
         self.bar = None
 
 
     def get_initial_coverage(self) -> dict:
         """Returns the coverage initially measured."""
         return self.coverage
+
+
+    def set_final_coverage(self, cov: dict) -> None:
+        """Adds the final coverage obtained, so it can be saved in a checkpoint."""
+        self.final_coverage = cov
 
 
     def set_progress_bar(self, bar: Progress):
@@ -365,15 +371,20 @@ class State:
 
     def save_checkpoint(self, ckpt_file: Path):
         """Saves this state to a checkpoint file."""
+        ckpt = {
+            'version': 1,
+            'done': {k:list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'set' as-is
+            'usage': self.usage,
+            'counters': self.counters,
+            'coverage': self.coverage
+            # FIXME save missing modules
+        }
+
+        if self.final_coverage:
+            ckpt['final_coverage'] = self.final_coverage
+
         with ckpt_file.open("w") as f:
-            json.dump({
-                'version': 1,
-                'done': {k:list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'set' as-is
-                'usage': self.usage,
-                'counters': self.counters,
-                'coverage': self.coverage
-                # FIXME save missing modules
-            }, f)
+            json.dump(ckpt, f)
 
 
 state = None
@@ -683,6 +694,10 @@ def main():
 
     coverage = disable_interfering_tests()
     print(f"End coverage: {coverage['summary']['percent_covered']:.1f}%")
+
+    if args.checkpoint:
+        state.set_final_coverage(coverage)
+        state.save_checkpoint(args.checkpoint)
 
     # --- (4) final remarks ---
 
