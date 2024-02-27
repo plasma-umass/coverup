@@ -24,10 +24,15 @@ def parse_args(args=None):
     ap.add_argument('source_files', type=Path, nargs='*',
                     help='only process certain source file(s)')
 
-    ap.add_argument('--tests-dir', type=Path, required=True,
+    def Path_dir(value):
+        path_dir = Path(value)
+        if not path_dir.is_dir(): raise argparse.ArgumentTypeError("must be a directory")
+        return path_dir
+
+    ap.add_argument('--tests-dir', type=Path_dir, required=True,
                     help='directory where tests reside')
 
-    ap.add_argument('--source-dir', '--source', type=Path, required=True,
+    ap.add_argument('--source-dir', '--source', type=Path_dir, required=True,
                     help='directory where sources reside')
 
     ap.add_argument('--checkpoint', type=Path, 
@@ -91,7 +96,6 @@ def parse_args(args=None):
                     help='maximum number of parallel requests; 0 means unlimited')
 
     return ap.parse_args(args)
-
 
 def test_file_path(test_seq: int) -> Path:
     """Returns the Path for a test's file, given its sequence number."""
