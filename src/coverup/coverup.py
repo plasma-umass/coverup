@@ -180,7 +180,7 @@ def disable_interfering_tests() -> dict:
                 print(f"{failing_test} fails by itself(!)")
                 culprits = {failing_test}
             else:
-                culprits = btf.find_culprit(failing_test, test_set=test_set)
+                culprits = btf.find_culprit(failing_test)
 
         for c in culprits:
             print(f"Disabling {c}")
