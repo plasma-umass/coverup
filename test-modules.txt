@@ -3,5 +3,7 @@ mock
 #unittest
 #pytest-asyncio
 pytest-datadir
+pytest-mock
+monkeypatch
 hypothesis
 responses

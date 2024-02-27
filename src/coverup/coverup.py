@@ -97,6 +97,7 @@ def parse_args(args=None):
 
     return ap.parse_args(args)
 
+
 def test_file_path(test_seq: int) -> Path:
     """Returns the Path for a test's file, given its sequence number."""
     return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
@@ -457,6 +458,7 @@ async def improve_coverage(seg: CodeSegment) -> bool:
     # TODO reinforce use of monkeypatch or other self-cleaning techniques
     messages = [{"role": "user",
                  "content": f"""
+You are an expert Python test-driven developer.
 The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
 when tested, {seg.lines_branches_missing_do()} not execute.
 Create a new pytest test function that executes these missing lines/branches, always making
@@ -464,8 +466,8 @@ sure that the new test is correct and indeed improves coverage.
 Always send entire Python test scripts when proposing a new test or correcting one you
 previously proposed.
 Be sure to include assertions in the test that verify any applicable postconditions.
-Please also make VERY SURE to clean up after the test, so as not to affect tests ran after it
-in the same pytest execution.
+Please also make VERY SURE to clean up after the test, so as not to affect other tests;
+use 'pytest-mock' if appropriate.
 Write as little top-level code as possible, and in particular do not include any top-level code
 calling into pytest.main or the test itself.
 Respond ONLY with the Python code enclosed in backticks, without any explanation.
