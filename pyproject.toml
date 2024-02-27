@@ -23,7 +23,7 @@ dependencies = [
     "aiolimiter",
     "tqdm",
     "llm_utils",
-    "slipcover"
+    "slipcover>=1.0.3"
 ]
 
 [project.scripts]
