@@ -79,6 +79,9 @@ def parse_args(args=None):
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
 
+    ap.add_argument('--failing-test-action', choices=['disable', 'find-culprit'], default='disable',
+                    help='what to do about failing tests when checking the entire suite.')
+
     ap.add_argument('--only-disable-interfering-tests', default=False,
                     action=argparse.BooleanOptionalAction,
                     help='rather than try to add new tests, only look for tests causing others to fail and disable them.')
@@ -169,7 +172,8 @@ def disable_interfering_tests() -> dict:
 
         btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
                              trace=(print if args.debug else None))
-        if True:
+
+        if args.failing_test_action == 'disable':
             # just disable failing test(s) while we work on BTF
             print(f"failed ({failing_test}).  Looking for failing tests(s) to disable...")
             culprits = btf.run_tests()
@@ -403,7 +407,11 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
     while True:
         try:
             if token_rate_limit:
-                await token_rate_limit.acquire(count_tokens(args.model, completion))
+                try:
+                    await token_rate_limit.acquire(count_tokens(args.model, completion))
+                except ValueError as e:
+                    log_write(seg, f"Error: too many tokens for rate limit ({e})")
+                    return None # gives up this segment
 
             return await openai.ChatCompletion.acreate(**completion)
 
@@ -530,7 +538,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
                 "role": "user",
                 "content": "Executing the test yields an error, shown below.\n" +\
                            "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
-                           clean_error(str(e.stdout, 'UTF-8'))
+                           clean_error(str(e.stdout, 'UTF-8', errors='ignore'))
             })
             log_write(seg, messages[-1]['content'])
             continue
@@ -626,7 +634,7 @@ def main():
             coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
                                               pytest_args=args.pytest_args)
         except subprocess.CalledProcessError as e:
-            print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8'))
+            print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8', errors='ignore'))
             return 1
 
         state = State(coverage)

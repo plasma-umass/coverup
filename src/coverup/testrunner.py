@@ -23,7 +23,7 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
                                       f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
                                       check=True, timeout=60)
             if log_write:
-                log_write(str(p.stdout, 'UTF-8'))
+                log_write(str(p.stdout, 'UTF-8', errors='ignore'))
 
             cov = json.load(j)
 
@@ -39,7 +39,7 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='',
 
         if trace:
             trace(f"tests rc={p.returncode}\n")
-            trace(str(p.stdout, 'UTF-8'))
+            trace(str(p.stdout, 'UTF-8', errors='ignore'))
 
         if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
             p.check_returncode()
@@ -53,7 +53,7 @@ class ParseError(Exception):
 
 def parse_failed_tests(tests_dir: Path, p: (subprocess.CompletedProcess, subprocess.CalledProcessError)) -> T.List[Path]:
     # FIXME use --junitxml or --report-log
-    output = str(p.stdout, 'UTF-8')
+    output = str(p.stdout, 'UTF-8', errors='ignore')
     if (m := re.search(r"\n===+ short test summary info ===+\n((?:ERROR|FAILED).*)", output, re.DOTALL)):
         summary = m.group(1)
         failures = [Path(f) for f in re.findall(r"^(?:ERROR|FAILED) ([^\s:]+)", summary, re.MULTILINE)]
@@ -125,7 +125,7 @@ class BadTestsFinder(DeltaDebugger):
 
             if self.trace:
                 self.trace(f"tests rc={p.returncode} failing={_compact(failing)}\n")
-#                self.trace(str(p.stdout, 'UTF-8'))
+#                self.trace(str(p.stdout, 'UTF-8', errors='ignore'))
 
             return failing
 
