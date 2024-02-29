@@ -6,45 +6,59 @@ import typing as T
 import sys
 import json
 import re
+import os
 from .delta import DeltaDebugger, _compact
 from .utils import subprocess_run
 
 
 async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None):
     """Runs a given test and returns the coverage obtained."""
-    with tempfile.NamedTemporaryFile(prefix="tmp_test_", suffix='.py',
-                                     dir=str(tests_dir), mode="w") as t:
+    with tempfile.NamedTemporaryFile(prefix="tmp_test_", suffix='.py', dir=str(tests_dir), mode="w") as t:
         t.write(test)
         t.flush()
 
-        with tempfile.NamedTemporaryFile() as j:
-            # -qq to cut down on tokens
-            p = await subprocess_run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
-                                      f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
-                                      check=True, timeout=60)
-            if log_write:
-                log_write(str(p.stdout, 'UTF-8', errors='ignore'))
+        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
+            try:
+                # -qq to cut down on tokens
+                p = await subprocess_run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
+                                          f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
+                                          check=True, timeout=60)
+                if log_write:
+                    log_write(str(p.stdout, 'UTF-8', errors='ignore'))
 
-            cov = json.load(j)
+                cov = json.load(j)
+            finally:
+                j.close()
+                try:
+                    os.unlink(j.name)
+                except FileNotFoundError:
+                    pass
 
     return cov["files"]
 
 
 def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None):
     """Runs an entire test suite and returns the coverage obtained."""
-    with tempfile.NamedTemporaryFile() as j:
-        p = subprocess.run((f"{sys.executable} -m slipcover --source {source_dir} --branch --json --out {j.name} " +
-                            f"-m pytest {pytest_args} -qq -x --disable-warnings {tests_dir}").split(),
-                           check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
+        try:
+            p = subprocess.run((f"{sys.executable} -m slipcover --source {source_dir} --branch --json --out {j.name} " +
+                                f"-m pytest {pytest_args} -qq -x --disable-warnings {tests_dir}").split(),
+                               check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
-        if trace:
-            trace(f"tests rc={p.returncode}\n")
-            trace(str(p.stdout, 'UTF-8', errors='ignore'))
+            if trace:
+                trace(f"tests rc={p.returncode}\n")
+                trace(str(p.stdout, 'UTF-8', errors='ignore'))
 
-        if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
-            p.check_returncode()
+            if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
+                p.check_returncode()
 
-        return json.load(j)
+            return json.load(j)
+        finally:
+            j.close()
+            try:
+                os.unlink(j.name)
+            except FileNotFoundError:
+                pass
 
 
 class ParseError(Exception):

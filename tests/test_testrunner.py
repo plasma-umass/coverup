@@ -4,6 +4,11 @@ import coverup.testrunner as tr
 from pathlib import Path
 
 
+@pytest.mark.asyncio
+async def test_measure_test_coverage_exit_1(tmpdir):
+    with pytest.raises(subprocess.CalledProcessError) as einfo:
+        await tr.measure_test_coverage(test="import os;\ndef test_foo(): os.exit(1)\n", tests_dir=Path(tmpdir))
+
 def test_measure_suite_coverage_empty_dir(tmpdir):
     coverage = tr.measure_suite_coverage(tests_dir=Path(tmpdir), source_dir=Path('src'))   # shouldn't throw
     assert coverage['summary']['covered_lines'] == 0
