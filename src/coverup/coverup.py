@@ -630,9 +630,8 @@ def main():
         print("Continuing from checkpoint;  ", end='')
     else:
         try:
-            print("Measuring test suite coverage...  ", end='')
-            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
-                                              pytest_args=args.pytest_args)
+            coverage = disable_interfering_tests()
+
         except subprocess.CalledProcessError as e:
             print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8', errors='ignore'))
             return 1
@@ -641,7 +640,7 @@ def main():
 
     coverage = state.get_initial_coverage()
 
-    print(f"initial coverage: {coverage['summary']['percent_covered']:.1f}%")
+    print(f"Initial coverage: {coverage['summary']['percent_covered']:.1f}%")
     # TODO also show running coverage estimate
 
     segments = sorted(get_missing_coverage(state.get_initial_coverage(), line_limit=args.line_limit),
