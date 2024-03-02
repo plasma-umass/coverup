@@ -653,6 +653,7 @@ def main():
     # --- (2) prompt for tests ---
 
     print(f"Prompting {args.model} for tests to increase coverage...")
+    print("(in the following, G=good, F=failed, U=useless and R=retry)")
 
     async def work_segment(seg: CodeSegment) -> None:
         if await improve_coverage(seg):
