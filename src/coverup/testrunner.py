@@ -21,7 +21,7 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
             try:
                 # -qq to cut down on tokens
                 p = await subprocess_run((f"{sys.executable} -m slipcover --branch --json --out {j.name} " +
-                                          f"-m pytest {pytest_args} -qq --disable-warnings {t.name}").split(),
+                                          f"-m pytest {pytest_args} -qq -x --disable-warnings {t.name}").split(),
                                           check=True, timeout=60)
                 if log_write:
                     log_write(str(p.stdout, 'UTF-8', errors='ignore'))
