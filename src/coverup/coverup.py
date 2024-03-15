@@ -462,8 +462,6 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
     module_name = get_module_name(seg.filename, args.source_dir)
 
-    # TODO add "you are an expert python test-driven developer" or such
-    # TODO reinforce use of monkeypatch or other self-cleaning techniques
     messages = [{"role": "user",
                  "content": f"""
 You are an expert Python test-driven developer.
