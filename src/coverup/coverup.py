@@ -1,12 +1,22 @@
 import asyncio
-import openai
 import json
+import litellm # type: ignore
+import logging
 import subprocess
-from pathlib import Path
-import typing as T
 import re
 import sys
+import typing as T
+
+from pathlib import Path
 from datetime import datetime
+from openai import (
+    NotFoundError,
+    RateLimitError,
+    APITimeoutError,
+    OpenAIError,
+    BadRequestError,
+)
+
 from .llm import *
 from .segment import *
 from .testrunner import *
@@ -15,6 +25,9 @@ from .testrunner import *
 PREFIX = 'coverup'
 DEFAULT_MODEL='gpt-4-1106-preview'
 
+# Turn off most logging
+litellm.set_verbose = False
+logging.getLogger().setLevel(logging.ERROR)
 
 def parse_args(args=None):
     import argparse
@@ -403,6 +416,8 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
     global token_rate_limit
 
+    # FIXME
+    token_rate_limit = None
     sleep = 1
     while True:
         try:
@@ -413,11 +428,9 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
                     log_write(seg, f"Error: too many tokens for rate limit ({e})")
                     return None # gives up this segment
 
-            return await openai.ChatCompletion.acreate(**completion)
+            return await litellm.acreate(**completion)
 
-        except (openai.error.ServiceUnavailableError,
-                openai.error.RateLimitError,
-                openai.error.Timeout) as e:
+        except (RateLimitError, TimeoutError) as e:
 
             # This message usually indicates out of money in account
             if 'You exceeded your current quota' in str(e):
@@ -432,13 +445,12 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             state.inc_counter('R')
             await asyncio.sleep(sleep_time)
 
-        except openai.error.InvalidRequestError as e:
+        except BadRequestError as e:
             # usually "maximum context length" XXX check for this?
             log_write(seg, f"Error: {type(e)} {e}")
             return None # gives up this segment
 
-        except (openai.error.APIConnectionError,
-                openai.error.APIError) as e:
+        except (ConnectionError) as e:
             log_write(seg, f"Error: {type(e)} {e}")
             # usually a server-side error... just retry right away
             state.inc_counter('R')
@@ -589,6 +601,7 @@ def add_to_pythonpath(source_dir: Path):
 
 
 def main():
+
     from collections import defaultdict
     import os
 
@@ -612,13 +625,38 @@ def main():
         token_rate_limit = AsyncLimiter(*limit)
         # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
 
-    if 'OPENAI_API_KEY' not in os.environ:
-        print("Please place your OpenAI key in an environment variable named OPENAI_API_KEY and try again.")
-        return 1
 
-    openai.key=os.environ['OPENAI_API_KEY']
-    if 'OPENAI_ORGANIZATION' in os.environ:
-        openai.organization=os.environ['OPENAI_ORGANIZATION']
+    # Check for an API key for OpenAI or Amazon Bedrock.
+    if 'OPENAI_API_KEY' not in os.environ:
+        if not all(x in os.environ for x in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION_NAME']):
+            print("You need a key (or keys) from an AI service to use CoverUp.")
+            print()
+            print("OpenAI:")
+            print("  You can get a key here: https://platform.openai.com/api-keys")
+            print("  Set the environment variable OPENAI_API_KEY to your key value:")
+            print("    export OPENAI_API_KEY=<your key>")
+            print()
+            print()
+            print("Bedrock:")
+            print("  To use Bedrock, you need an AWS account.")
+            print("  Set the following environment variables:")
+            print("    export AWS_ACCESS_KEY_ID=<your key id>")
+            print("    export AWS_SECRET_ACCESS_KEY=<your secret key>")
+            print("    export AWS_REGION_NAME=us-west-2")
+            print("  You also need to request access to Claude:")
+            print(
+                "   https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
+            )
+            print()
+            return 1
+
+    if 'OPENAI_API_KEY' in os.environ:
+        args.model = "openai/gpt-4" # FIXME
+        openai.key=os.environ['OPENAI_API_KEY']
+        if 'OPENAI_ORGANIZATION' in os.environ:
+            openai.organization=os.environ['OPENAI_ORGANIZATION']
+    else:
+        args.model = "bedrock/anthropic.claude-v2:1"   
 
     log_write('startup', f"Command: {' '.join(sys.argv)}")
 
