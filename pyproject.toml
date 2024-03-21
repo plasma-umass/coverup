@@ -18,6 +18,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "asyncio",
+    "openai",
     "tiktoken",
     "aiolimiter",
     "tqdm",

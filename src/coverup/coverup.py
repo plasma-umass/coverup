@@ -2,6 +2,7 @@ import asyncio
 import json
 import litellm # type: ignore
 import logging
+import openai
 import subprocess
 import re
 import sys
@@ -9,13 +10,6 @@ import typing as T
 
 from pathlib import Path
 from datetime import datetime
-from openai import (
-    NotFoundError,
-    RateLimitError,
-    APITimeoutError,
-    OpenAIError,
-    BadRequestError,
-)
 
 from .llm import *
 from .segment import *
@@ -23,7 +17,7 @@ from .testrunner import *
 
 
 PREFIX = 'coverup'
-DEFAULT_MODEL='gpt-4-1106-preview'
+DEFAULT_MODEL=''    # Model logic now in main()
 
 # Turn off most logging
 litellm.set_verbose = False
@@ -118,6 +112,7 @@ def parse_args(args=None):
 
 def test_file_path(test_seq: int) -> Path:
     """Returns the Path for a test's file, given its sequence number."""
+    global args
     return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
 
 
@@ -432,7 +427,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
             return await litellm.acreate(**completion)
 
-        except (RateLimitError, TimeoutError) as e:
+        except (openai.RateLimitError, openai.APITimeoutError) as e:
 
             # This message usually indicates out of money in account
             if 'You exceeded your current quota' in str(e):
@@ -447,7 +442,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             state.inc_counter('R')
             await asyncio.sleep(sleep_time)
 
-        except BadRequestError as e:
+        except openai.BadRequestError as e:
             # usually "maximum context length" XXX check for this?
             log_write(seg, f"Error: {type(e)} {e}")
             return None # gives up this segment
@@ -653,13 +648,16 @@ def main():
             return 1
 
     if 'OPENAI_API_KEY' in os.environ:
-        args.model = "openai/gpt-4" # FIXME
-        openai.key=os.environ['OPENAI_API_KEY']
-        if 'OPENAI_ORGANIZATION' in os.environ:
-            openai.organization=os.environ['OPENAI_ORGANIZATION']
+        if not args.model:
+            # args.model = "openai/gpt-4"
+            args.model = "openai/gpt-4-1106-preview"
+        # openai.key=os.environ['OPENAI_API_KEY']
+        #if 'OPENAI_ORGANIZATION' in os.environ:
+        #    openai.organization=os.environ['OPENAI_ORGANIZATION']
     else:
-        # args.model = "bedrock/anthropic.claude-v2:1"   
-        args.model = "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+        # args.model = "bedrock/anthropic.claude-v2:1"
+        if not args.model:
+            args.model = "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
     log_write('startup', f"Command: {' '.join(sys.argv)}")
 
     # --- (1) load or measure initial coverage, figure out segmentation ---
