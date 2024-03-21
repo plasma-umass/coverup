@@ -28,6 +28,8 @@ DEFAULT_MODEL='gpt-4-1106-preview'
 # Turn off most logging
 litellm.set_verbose = False
 logging.getLogger().setLevel(logging.ERROR)
+# Ignore unavailable parameters
+litellm.drop_params=True
 
 def parse_args(args=None):
     import argparse
@@ -656,8 +658,8 @@ def main():
         if 'OPENAI_ORGANIZATION' in os.environ:
             openai.organization=os.environ['OPENAI_ORGANIZATION']
     else:
-        args.model = "bedrock/anthropic.claude-v2:1"   
-
+        # args.model = "bedrock/anthropic.claude-v2:1"   
+        args.model = "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
     log_write('startup', f"Command: {' '.join(sys.argv)}")
 
     # --- (1) load or measure initial coverage, figure out segmentation ---
