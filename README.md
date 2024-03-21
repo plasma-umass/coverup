@@ -87,10 +87,3 @@ As the graph shows, CoverUp achieves higher coverage in almost every case.
 
 This is an early release of CoverUp.
 Please enjoy it, and pardon any disruptions as we work to improve it. We welcome bug reports, experience reports, and feature requests (please [open an issue](https://github.com/plasma-umass/coverup/issues/new)).
-
-## Acknowledgements
-This material is based upon work supported by the National Science
-Foundation under Grant No. 1955610. Any opinions, findings, and
-conclusions or recommendations expressed in this material are those of
-the author(s) and do not necessarily reflect the views of the National
-Science Foundation.
