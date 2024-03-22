@@ -90,6 +90,8 @@ def parse_args(args=None):
                     action=argparse.BooleanOptionalAction,
                     help='print out debugging messages.')
 
+    ap.add_argument('--ablate', default=False, action='store_true', help=argparse.SUPPRESS)
+
     def positive_int(value):
         ivalue = int(value)
         if ivalue < 0: raise argparse.ArgumentTypeError("must be a number >= 0")
@@ -462,11 +464,14 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
     module_name = get_module_name(seg.filename, args.source_dir)
 
+    if args.ablate: seg.lines_of_interest = set() # prevents highlighting lines
+
+    # TODO ask for "Create new pytest test functions... (plural)
     messages = [{"role": "user",
                  "content": f"""
 You are an expert Python test-driven developer.
 The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
-when tested, {seg.lines_branches_missing_do()} not execute.
+when tested, {'some lines and/or branches' if args.ablate else seg.lines_branches_missing_do()} not execute.
 Create a new pytest test function that executes these missing lines/branches, always making
 sure that the new test is correct and indeed improves coverage.
 Always send entire Python test scripts when proposing a new test or correcting one you
@@ -558,8 +563,9 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
             messages.append({
                 "role": "user",
+                # TODO could simply say it "does not improve coverage"
                 "content": f"""
-This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
+This test still lacks coverage: {'some lines and/or branches' if args.ablate else lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
 Modify it to correct that; respond only with the complete Python code in backticks.
 """
             })
