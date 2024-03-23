@@ -413,8 +413,6 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
     global token_rate_limit
 
-    # FIXME
-    token_rate_limit = None
     sleep = 1
     while True:
         try:
