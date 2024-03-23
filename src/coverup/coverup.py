@@ -17,7 +17,6 @@ from .testrunner import *
 
 
 PREFIX = 'coverup'
-DEFAULT_MODEL=''    # Model logic now in main()
 
 # Turn off most logging
 litellm.set_verbose = False
@@ -49,7 +48,7 @@ def parse_args(args=None):
     ap.add_argument('--no-checkpoint', action='store_const', const=None, dest='checkpoint', default=argparse.SUPPRESS,
                     help=f'disables checkpoint')
 
-    ap.add_argument('--model', type=str, default=DEFAULT_MODEL,
+    ap.add_argument('--model', type=str,
                     help='OpenAI model to use')
 
     ap.add_argument('--model-temperature', type=str, default=0,
