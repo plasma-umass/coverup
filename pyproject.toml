@@ -18,12 +18,13 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "asyncio",
-    "openai==0.28",
+    "openai",
     "tiktoken",
     "aiolimiter",
     "tqdm",
     "llm_utils",
-    "slipcover>=1.0.3"
+    "slipcover>=1.0.3",
+    "litellm>=1.33.1"
 ]
 
 [project.scripts]
