@@ -112,7 +112,7 @@ def parse_args(args=None):
 def test_file_path(test_seq: int) -> Path:
     """Returns the Path for a test's file, given its sequence number."""
     global args
-    return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
+    return args.tests_dir / f"test_{PREFIX}_{args.model.split('/')[0]}_{test_seq}.py"
 
 
 test_seq = 1
