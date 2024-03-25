@@ -16,8 +16,6 @@ from .segment import *
 from .testrunner import *
 
 
-PREFIX = 'coverup'
-
 # Turn off most logging
 litellm.set_verbose = False
 logging.getLogger().setLevel(logging.ERROR)
@@ -74,7 +72,7 @@ def parse_args(args=None):
                     action=argparse.BooleanOptionalAction,
                     help=f'show details of lines/branches after each response')
 
-    ap.add_argument('--log-file', default=f"{PREFIX}-log",
+    ap.add_argument('--log-file', default=f"coverup-log",
                     help='log file to use')
 
     ap.add_argument('--pytest-args', type=str, default='',
@@ -83,6 +81,9 @@ def parse_args(args=None):
     ap.add_argument('--install-missing-modules', default=False,
                     action=argparse.BooleanOptionalAction,
                     help='attempt to install any missing modules')
+
+    ap.add_argument('--prefix', type=str, default='coverup',
+                    help='prefix to use for test file names')
 
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
@@ -112,7 +113,7 @@ def parse_args(args=None):
 def test_file_path(test_seq: int) -> Path:
     """Returns the Path for a test's file, given its sequence number."""
     global args
-    return args.tests_dir / f"test_{PREFIX}_{args.model.split('/')[0]}_{test_seq}.py"
+    return args.tests_dir / f"test_{args.prefix}_{test_seq}.py"
 
 
 test_seq = 1
