@@ -29,7 +29,7 @@ def _compact(test_set):
             yield str(a) if a == b else f"{a}-{b}"
             a = n
 
-    return ", ".join(list(get_ranges()) + sorted(names))
+    return "{" + ", ".join(list(get_ranges()) + sorted(names)) + "}"
 
 
 class DeltaDebugger(abc.ABC):

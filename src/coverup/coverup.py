@@ -168,37 +168,44 @@ def disable_interfering_tests() -> dict:
     """While the test suite fails, disables any interfering tests.
        If the test suite succeeds, returns the coverage observed."""
 
+    pytest_args = args.pytest_args
+    if args.failing_test_action != 'disable':
+        pytest_args += " -x"  # stop at first (to save time)
+
     while True:
         print("Checking test suite...  ", end='')
         try:
             coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
-                                              pytest_args=args.pytest_args,
+                                              pytest_args=pytest_args,
                                               trace=(print if args.debug else None))
             print("tests ok!")
             return coverage
 
-        except subprocess.CalledProcessError as e:
-            failing_test = parse_failed_tests(args.tests_dir, e)[0]
-
-        btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
-                             trace=(print if args.debug else None))
+        except TestRunnerError as e:
+            failing_tests = list(p for p, o in e.outcomes.items() if o != 'passed') if e.outcomes else None
+            if not failing_tests:
+                print(str(e) + "\n" + e.stdout)
+                sys.exit(1)
 
         if args.failing_test_action == 'disable':
-            # just disable failing test(s) while we work on BTF
-            print(f"failed ({failing_test}).  Looking for failing tests(s) to disable...")
-            culprits = btf.run_tests()
+            print(f"{len(failing_tests)} test(s) failed, disabling...")
+            to_disable = failing_tests
 
         else:
-            print(f"{failing_test} is failing, looking for culprit(s)...")
-            if btf.run_tests({failing_test}) == {failing_test}:
-                print(f"{failing_test} fails by itself(!)")
-                culprits = {failing_test}
-            else:
-                culprits = btf.find_culprit(failing_test)
+            print(f"{failing_tests[0]} failed; Looking for culprit(s)...")
 
-        for c in culprits:
-            print(f"Disabling {c}")
-            c.rename(c.parent / ("disabled_" + c.name))
+            def print_noeol(message):
+                print(message, end='...\033[K\r', flush=True)
+
+            btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                 trace=(print if args.debug else None),
+                                 progress=(print if args.debug else print_noeol))
+
+            to_disable = btf.find_culprit(failing_tests[0])
+
+        for t in to_disable:
+            print(f"Disabling {t}")
+            t.rename(t.parent / ("disabled_" + t.name))
 
 
 def find_imports(python_code: str) -> T.List[str]:
