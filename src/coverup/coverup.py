@@ -503,8 +503,14 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             log_write(seg, "Too many attempts, giving up")
             break
 
-        if not (response := await do_chat(seg, {'model': args.model, 'messages': messages,
-                                                'temperature': args.model_temperature})):
+        completion = {'model': args.model,
+                      'messages': messages,
+                      'temperature': args.model_temperature}
+        
+        if "ollama" in args.model:
+            completion["api_base"] = "http://localhost:11434"
+            
+        if not (response := await do_chat(seg, completion)):
             log_write(seg, "giving up")
             break
 
