@@ -88,7 +88,7 @@ def parse_args(args=None):
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
 
-    ap.add_argument('--failing-test-action', choices=['disable', 'find-culprit'], default='disable',
+    ap.add_argument('--failing-test-action', choices=['disable', 'find-culprit'], default='find-culprit',
                     help='what to do about failing tests when checking the entire suite.')
 
     ap.add_argument('--only-disable-interfering-tests', default=False,
