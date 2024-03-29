@@ -2,6 +2,7 @@ import pytest
 import subprocess
 import coverup.testrunner as tr
 from pathlib import Path
+import tempfile
 
 
 @pytest.mark.asyncio
@@ -10,9 +11,15 @@ async def test_measure_test_coverage_exit_1(tmpdir):
         await tr.measure_test_coverage(test="import os;\ndef test_foo(): os.exit(1)\n", tests_dir=Path(tmpdir))
 
 
-def test_measure_suite_coverage_empty_dir(tmpdir):
-    coverage = tr.measure_suite_coverage(tests_dir=Path(tmpdir), source_dir=Path('src'))   # shouldn't throw
-    assert coverage['summary']['covered_lines'] == 0
+@pytest.mark.parametrize("absolute", [True, False])
+def test_measure_suite_coverage_empty_dir(absolute):
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
+        if absolute:
+            tests_dir = tests_dir.resolve()
+
+        coverage = tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'), trace=print)   # shouldn't throw
+        assert coverage['summary']['covered_lines'] == 0
 
 
 def seq2p(tests_dir, seq):
@@ -39,16 +46,19 @@ def make_failing_suite(tests_dir: Path, fail_collect: bool):
 
 
 @pytest.mark.parametrize("fail_collect", [True, False])
-def test_measure_suite_coverage_test_fails(tmpdir, fail_collect):
+@pytest.mark.parametrize("absolute", [True, False])
+def test_measure_suite_coverage_test_fails(absolute, fail_collect):
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
+        if absolute:
+            tests_dir = tests_dir.resolve()
 
-    tests_dir = Path(tmpdir)
+        failing, culprit = make_failing_suite(tests_dir, fail_collect)
 
-    failing, culprit = make_failing_suite(tests_dir, fail_collect)
+        with pytest.raises(tr.TestRunnerError) as einfo:
+            tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
 
-    with pytest.raises(tr.TestRunnerError) as einfo:
-        tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
-
-    assert {failing} == set(p for p, o in einfo.value.outcomes.items() if o != 'passed')
+        assert {failing} == set(p for p, o in einfo.value.outcomes.items() if o != 'passed')
 
 
 def test_finds_tests_in_subdir(tmpdir):
@@ -65,110 +75,124 @@ def test_finds_tests_in_subdir(tmpdir):
 
 
 @pytest.mark.parametrize("fail_collect", [True, False])
-def test_run_tests(tmpdir, fail_collect):
-    tests_dir = Path(tmpdir)
+@pytest.mark.parametrize("absolute", [True, False])
+def test_run_tests(absolute, fail_collect):
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
+        if absolute:
+            tests_dir = tests_dir.resolve()
 
-    failing, _ = make_failing_suite(tests_dir, fail_collect)
+        failing, _ = make_failing_suite(tests_dir, fail_collect)
 
-    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    outcomes = btf.run_tests()
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        outcomes = btf.run_tests()
 
-    if fail_collect:
+        if fail_collect:
+            assert len(outcomes) == 1
+        else:
+            assert len(outcomes) == N_TESTS
+
+        assert {failing} == set(p for p, o in outcomes.items() if o != 'passed')
+
+
+@pytest.mark.parametrize("absolute", [True, False])
+@pytest.mark.parametrize("fail_collect", [True, False])
+def test_run_tests_run_single(absolute, fail_collect):
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
+        if absolute:
+            tests_dir = tests_dir.resolve()
+
+        failing, _ = make_failing_suite(tests_dir, fail_collect=fail_collect)
+
+        non_failing = seq2p(tests_dir, 2)
+        assert non_failing != failing
+
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        outcomes = btf.run_tests(run_only=non_failing)
+
         assert len(outcomes) == 1
-    else:
-        assert len(outcomes) == N_TESTS
-
-    assert {failing} == set(p for p, o in outcomes.items() if o != 'passed')
-
-
-@pytest.mark.parametrize("fail_collect", [True, False])
-def test_run_tests_run_single(tmpdir, fail_collect):
-    tests_dir = Path(tmpdir)
-
-    failing, _ = make_failing_suite(tests_dir, fail_collect=fail_collect)
-
-    non_failing = seq2p(tests_dir, 2)
-    assert non_failing != failing
-
-    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    outcomes = btf.run_tests(run_only=non_failing)
-
-    assert len(outcomes) == 1
-    if fail_collect:
-        assert outcomes[failing] != 'passed'
-    else:
-        assert outcomes[non_failing] == 'passed'
+        if fail_collect:
+            assert outcomes[failing] != 'passed'
+        else:
+            assert outcomes[non_failing] == 'passed'
 
 
-def test_run_tests_multiple_failures(tmpdir):
-    tests_dir = Path(tmpdir)
+def test_run_tests_multiple_failures():
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
 
-    for seq in range(10):
-        seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
+        for seq in range(10):
+            seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
 
-    culprit = seq2p(tests_dir, 3)
-    culprit.write_text("import sys\n" + "sys.foobar = True")
+        culprit = seq2p(tests_dir, 3)
+        culprit.write_text("import sys\n" + "sys.foobar = True")
 
-    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    outcomes = btf.run_tests()
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        outcomes = btf.run_tests()
 
-    assert len(outcomes) == 9   # no tests in 3
-    for seq in range(10):
-        if seq != 3: assert outcomes[seq2p(tests_dir, seq)] != 'passed'
+        assert len(outcomes) == 9   # no tests in 3
+        for seq in range(10):
+            if seq != 3: assert outcomes[seq2p(tests_dir, seq)] != 'passed'
 
-def test_run_tests_no_tests(tmpdir):
-    tests_dir = Path(tmpdir)
 
-    (tests_dir / "test_foo.py").write_text("# no tests here")
+def test_run_tests_no_tests():
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
 
-    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    outcomes = btf.run_tests()
-    assert len(outcomes) == 0
+        (tests_dir / "test_foo.py").write_text("# no tests here")
+
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        outcomes = btf.run_tests()
+        assert len(outcomes) == 0
 
 
 @pytest.mark.parametrize("fail_collect", [True, False])
-def test_find_culprit(tmpdir, fail_collect):
-    tests_dir = Path(tmpdir)
+def test_find_culprit(fail_collect):
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
 
-    failing, culprit = make_failing_suite(tests_dir, fail_collect)
+        failing, culprit = make_failing_suite(tests_dir, fail_collect)
 
-    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
 
-    assert 'passed' == btf.run_tests({culprit})[culprit]
-    assert {culprit} == btf.find_culprit(failing)
+        assert 'passed' == btf.run_tests({culprit})[culprit]
+        assert {culprit} == btf.find_culprit(failing)
 
 
-def test_find_culprit_multiple_failures(tmpdir):
-    tests_dir = Path(tmpdir)
+def test_find_culprit_multiple_failures():
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
 
-    for seq in range(10):
-        seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
+        for seq in range(10):
+            seq2p(tests_dir, seq).write_text("import sys\n" + "def test_foo(): assert not getattr(sys, 'foobar', False)")
 
-    culprit = seq2p(tests_dir, 3)
-    culprit.write_text("import sys\n" + "sys.foobar = True")
+        culprit = seq2p(tests_dir, 3)
+        culprit.write_text("import sys\n" + "sys.foobar = True")
 
-    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    assert {culprit} == btf.find_culprit(seq2p(tests_dir, 6))
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        assert {culprit} == btf.find_culprit(seq2p(tests_dir, 6))
 
 
 @pytest.mark.skip(reason="no good handling for this yet, it takes a long time")
-def test_find_culprit_hanging_collect(tmpdir):
-    tests_dir = Path(tmpdir)
+def test_find_culprit_hanging_collect():
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
 
-    all_tests = {seq2p(tests_dir, seq) for seq in range(10)}
-    for t in all_tests:
-        t.write_text('def test_foo(): pass')
+        all_tests = {seq2p(tests_dir, seq) for seq in range(10)}
+        for t in all_tests:
+            t.write_text('def test_foo(): pass')
 
-    culprit = seq2p(tests_dir, 3)
-    culprit.write_text("""\
-import pytest
+        culprit = seq2p(tests_dir, 3)
+        culprit.write_text("""\
+    import pytest
 
-def test_foo(): pass
+    def test_foo(): pass
 
-pytest.main(["--verbose"])
-pytest.main(["--verbose"])
-pytest.main(["--verbose"])
-""")
+    pytest.main(["--verbose"])
+    pytest.main(["--verbose"])
+    pytest.main(["--verbose"])
+    """)
 
-    btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
-    btf.run_tests()
+        btf = tr.BadTestsFinder(tests_dir=tests_dir, trace=print)
+        btf.run_tests()
