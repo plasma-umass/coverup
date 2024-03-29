@@ -432,7 +432,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
             return await litellm.acreate(**completion)
 
-        except (openai.RateLimitError, openai.APITimeoutError, litellm.APIError) as e:
+        except (openai.RateLimitError, openai.APITimeoutError, litellm.APIError, litellm.exceptions.ServiceUnavailableError) as e:
 
             # This message usually indicates out of money in account
             if 'You exceeded your current quota' in str(e):
