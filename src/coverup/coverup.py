@@ -457,6 +457,9 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             # usually a server-side error... just retry right away
             state.inc_counter('R')
 
+        except subprocess.CalledProcessError as e:
+            print(f"coverup: subprocess.CalledProcessError {e.returncode}: {e.output}")
+
 
 def extract_python(response: str) -> str:
     # This regex accepts a truncated code block... this seems fine since we'll try it anyway
