@@ -195,6 +195,7 @@ def disable_interfering_tests() -> dict:
             print(f"{failing_tests[0]} failed; Looking for culprit(s)...")
 
             def print_noeol(message):
+                # ESC[K clears the rest of the line
                 print(message, end='...\033[K\r', flush=True)
 
             btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
