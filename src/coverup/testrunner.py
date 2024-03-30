@@ -177,19 +177,19 @@ class BadTestsFinder(DeltaDebugger):
     def test(self, test_set: set, **kwargs) -> bool:
         target_test = kwargs.get('target_test')
         outcomes = self.run_tests(test_set, stop_after=target_test, run_only=kwargs.get('run_only'))
-        if self.trace: self.trace(f"failing={_compact(set(p for p, o in outcomes.items() if o != 'passed'))}")
+        if self.trace: self.trace(f"failing={_compact(set(p for p, o in outcomes.items() if o == 'failed'))}")
 
         while target_test not in outcomes:
             if self.trace: self.trace(f"{target_test} not executed, trying without failing tests.")
-            test_set -= set(p for p, o in outcomes.items() if o != 'passed')
+            test_set -= set(p for p, o in outcomes.items() if o == 'failed')
 
             if not test_set:
                 raise BadTestFinderError(f"Unable to narrow down cause of {target_test} failure.")
 
             outcomes = self.run_tests(test_set, stop_after=target_test, run_only=kwargs.get('run_only'))
-            if self.trace: self.trace(f"failing={_compact(set(p for p, o in outcomes.items() if o != 'passed'))}")
+            if self.trace: self.trace(f"failing={_compact(set(p for p, o in outcomes.items() if o == 'failed'))}")
 
-        return outcomes[kwargs.get('target_test')] != 'passed'
+        return outcomes[kwargs.get('target_test')] == 'failed'
 
 
     def find_culprit(self, failing_test: Path, *, test_set = None) -> T.Set[Path]:
@@ -205,7 +205,7 @@ class BadTestsFinder(DeltaDebugger):
         tests_to_run = set(test_set if test_set is not None else self.all_tests) - {failing_test}
         outcomes = self.run_tests(tests_to_run.union({failing_test}), run_only=failing_test)
 
-        if outcomes[failing_test] != 'passed':
+        if outcomes[failing_test] == 'failed':
             if self.trace: print("Issue is in test collection code; looking for culprit...")
             return self.debug(changes=tests_to_run, rest={failing_test},
                               target_test=failing_test, run_only=failing_test)

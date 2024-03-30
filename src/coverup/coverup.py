@@ -182,7 +182,7 @@ def disable_interfering_tests() -> dict:
             return coverage
 
         except TestRunnerError as e:
-            failing_tests = list(p for p, o in e.outcomes.items() if o != 'passed') if e.outcomes else None
+            failing_tests = list(p for p, o in e.outcomes.items() if o == 'failed') if e.outcomes else None
             if not failing_tests:
                 print(str(e) + "\n" + e.stdout)
                 sys.exit(1)
@@ -201,6 +201,7 @@ def disable_interfering_tests() -> dict:
                                  trace=(print if args.debug else None),
                                  progress=(print if args.debug else print_noeol))
 
+            # FIXME handle BadTestFinderError
             to_disable = btf.find_culprit(failing_tests[0])
 
         for t in to_disable:
