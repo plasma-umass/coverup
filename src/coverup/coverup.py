@@ -198,12 +198,16 @@ def disable_interfering_tests() -> dict:
                 # ESC[K clears the rest of the line
                 print(message, end='...\033[K\r', flush=True)
 
-            btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
-                                 trace=(print if args.debug else None),
-                                 progress=(print if args.debug else print_noeol))
+            try:
+                btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                     trace=(print if args.debug else None),
+                                     progress=(print if args.debug else print_noeol))
 
-            # FIXME handle BadTestFinderError
-            to_disable = btf.find_culprit(failing_tests[0])
+                to_disable = btf.find_culprit(failing_tests[0])
+
+            except BadTestFinderError as e:
+                print(e)
+                to_disable = {failing_tests[0]}
 
         for t in to_disable:
             print(f"Disabling {t}")
