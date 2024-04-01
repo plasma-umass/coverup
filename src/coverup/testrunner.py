@@ -148,7 +148,11 @@ class BadTestsFinder(DeltaDebugger):
 
             with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as outcomes_f:
                 try:
-                    command = [sys.executable, "-m", "pytest"] + self.pytest_args + \
+                    command = [sys.executable,
+                               # include SlipCover in case a test is failing because of it
+                               # (in measure_suite_coverage)
+                               '-m', 'slipcover', '--branch', '--out', '/dev/null',
+                               "-m", "pytest"] + self.pytest_args + \
                               ['-qq', '--disable-warnings',
                                '-p', 'coverup.pytest_plugin', '--coverup-outcomes', str(outcomes_f.name)] \
                             + (['--coverup-stop-after', str(to_tmpdir(stop_after))] if stop_after else []) \
@@ -196,8 +200,15 @@ class BadTestsFinder(DeltaDebugger):
         """Returns the set of tests causing 'failing_test' to fail."""
         assert failing_test in self.all_tests
 
+        if self.trace: self.trace(f"checking that {failing_test} still fails...")
+        outcomes = self.run_tests(stop_after=failing_test)
+        if outcomes[failing_test] != 'failed':
+            if self.trace: self.trace("it doesn't!")
+            raise BadTestFinderError(f"Unable to narrow down causes of failure")
+
         if self.trace: self.trace(f"checking if {failing_test} passes by itself...")
-        if self.run_tests({failing_test}) == {failing_test}:
+        outcomes = self.run_tests({failing_test})
+        if outcomes[failing_test] != 'passed':
             if self.trace: self.trace("it doesn't!")
             return {failing_test}
 
@@ -207,9 +218,13 @@ class BadTestsFinder(DeltaDebugger):
 
         if outcomes[failing_test] == 'failed':
             if self.trace: print("Issue is in test collection code; looking for culprit...")
-            return self.debug(changes=tests_to_run, rest={failing_test},
-                              target_test=failing_test, run_only=failing_test)
+            culprits = self.debug(changes=tests_to_run, rest={failing_test},
+                                  target_test=failing_test, run_only=failing_test)
+        else:
+            if self.trace: print("Issue is in test run code; looking for culprit...")
+            culprits = self.debug(changes=tests_to_run, rest={failing_test}, target_test=failing_test)
 
-        if self.trace: print("Issue is in test run code; looking for culprit...")
-        changes = set(test_set if test_set is not None else self.all_tests) - {failing_test}
-        return self.debug(changes=changes, rest={failing_test}, target_test=failing_test)
+        if culprits == tests_to_run:
+            raise BadTestFinderError(f"Unable to narrow down causes of failure")
+
+        return culprits
