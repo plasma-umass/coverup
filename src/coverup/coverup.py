@@ -1,6 +1,12 @@
 import asyncio
 import json
-import litellm # type: ignore
+import warnings
+
+with warnings.catch_warnings():
+    # ignore pydantic warnings https://github.com/BerriAI/litellm/issues/2832
+    warnings.simplefilter('ignore')
+    import litellm # type: ignore
+
 import logging
 import openai
 import subprocess
