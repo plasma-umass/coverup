@@ -37,7 +37,7 @@ def parse_args(args=None):
                     help='only process certain source file(s)')
 
     def Path_dir(value):
-        path_dir = Path(value)
+        path_dir = Path(value).resolve()
         if not path_dir.is_dir(): raise argparse.ArgumentTypeError("must be a directory")
         return path_dir
 
@@ -113,7 +113,12 @@ def parse_args(args=None):
     ap.add_argument('--max-concurrency', type=positive_int, default=50,
                     help='maximum number of parallel requests; 0 means unlimited')
 
-    return ap.parse_args(args)
+    args = ap.parse_args(args)
+
+    for i in range(len(args.source_files)):
+        args.source_files[i] = args.source_files[i].resolve()
+
+    return args
 
 
 def test_file_path(test_seq: int) -> Path:
@@ -277,10 +282,9 @@ def get_required_modules() -> T.List[str]:
 
 
 def get_module_name(src_file: Path, src_dir: Path) -> str:
+    # assumes both src_file and src_dir Path.resolve()'d
     try:
-        src_file = Path(src_file)
-        src_dir = Path(src_dir)
-        relative = src_file.resolve().relative_to(src_dir.resolve())
+        relative = src_file.relative_to(src_dir)
         return ".".join((src_dir.stem,) + relative.parts[:-1] + (relative.stem,))
     except ValueError:
         return None  # not relative to source
@@ -377,12 +381,12 @@ class State:
 
     def mark_done(self, seg: CodeSegment):
         """Marks a segment done."""
-        self.done[seg.filename].add((seg.begin, seg.end))
+        self.done[seg.path].add((seg.begin, seg.end))
 
 
     def is_done(self, seg: CodeSegment):
         """Returns whether a segment is done."""
-        return (seg.begin, seg.end) in self.done[seg.filename]
+        return (seg.begin, seg.end) in self.done[seg.path]
 
 
     @staticmethod
@@ -397,7 +401,7 @@ class State:
 
                 state = State(ckpt['coverage'])
                 for filename, done_list in ckpt['done'].items():
-                    state.done[filename] = set(tuple(d) for d in done_list)
+                    state.done[Path(filename).resolve()] = set(tuple(d) for d in done_list)
                 state.add_usage(ckpt['usage'])
                 if 'counters' in ckpt:
                     state.counters = ckpt['counters']
@@ -411,7 +415,7 @@ class State:
         """Saves this state to a checkpoint file."""
         ckpt = {
             'version': 1,
-            'done': {k:list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'set' as-is
+            'done': {str(k):list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'Path' or 'set' as-is
             'usage': self.usage,
             'counters': self.counters,
             'coverage': self.coverage
@@ -489,7 +493,7 @@ async def improve_coverage(seg: CodeSegment) -> bool:
             return singular
         return plural if plural is not None else f"{singular}s"
 
-    module_name = get_module_name(seg.filename, args.source_dir)
+    module_name = get_module_name(seg.path, args.source_dir)
 
     messages = [{"role": "user",
                  "content": f"""
@@ -730,10 +734,10 @@ def main():
     worklist = []
     seg_done_count = 0
     for seg in segments:
-        if not args.source_dir in Path(seg.filename).parents:
+        if not seg.path.is_relative_to(args.source_dir):
             continue
 
-        if args.source_files and all(seg.filename not in str(s) for s in args.source_files):
+        if args.source_files and seg.path not in args.source_files:
             continue
 
         if state.is_done(seg):
