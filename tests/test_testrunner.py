@@ -18,8 +18,8 @@ def test_measure_suite_coverage_empty_dir(absolute):
         if absolute:
             tests_dir = tests_dir.resolve()
 
-        coverage = tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'), trace=print)   # shouldn't throw
-        assert coverage['summary']['covered_lines'] == 0
+        coverage = tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=tests_dir, trace=print)   # shouldn't throw
+        assert {} == coverage['files']
 
 
 def seq2p(tests_dir, seq):

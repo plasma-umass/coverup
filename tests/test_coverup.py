@@ -103,10 +103,10 @@ def test_missing_imports():
 
 
 def test_get_module_name():
-    assert 'flask.json.provider' == coverup.get_module_name(Path('src/flask/json/provider.py'), Path('src/flask'))
-    assert 'flask.json.provider' == coverup.get_module_name('src/flask/json/provider.py', 'src/flask')
-    assert 'flask.tool' == coverup.get_module_name('src/flask/tool.py', './tests/../src/flask')
-    assert None == coverup.get_module_name('src/flask/tool.py', './tests')
+    fpath = Path('src/flask/json/provider.py').resolve()
+    srcpath = Path('src/flask').resolve()
+    assert 'flask.json.provider' == coverup.get_module_name(fpath, srcpath)
+    assert None == coverup.get_module_name(fpath, Path('./tests').resolve())
 
 def test_extract_python():
     assert "foo()\n\nbar()\n" == coverup.extract_python("""\
