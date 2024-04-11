@@ -103,12 +103,6 @@ def test_missing_imports():
     assert coverup.missing_imports(['sys', 'idontexist'])
 
 
-def test_get_module_name():
-    fpath = Path('src/flask/json/provider.py').resolve()
-    srcpath = Path('src/flask').resolve()
-    assert 'flask.json.provider' == coverup.get_module_name(fpath, srcpath)
-    assert None == coverup.get_module_name(fpath, Path('./tests').resolve())
-
 def test_extract_python():
     assert "foo()\n\nbar()\n" == coverup.extract_python("""\
 ```python

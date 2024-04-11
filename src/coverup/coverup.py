@@ -20,6 +20,7 @@ from datetime import datetime
 from .llm import *
 from .segment import *
 from .testrunner import *
+from . import prompt
 
 
 # Turn off most logging
@@ -56,8 +57,8 @@ def parse_args(args=None):
                     help='OpenAI model to use')
 
     ap.add_argument('--prompt-family', type=str,
-                    choices = ['gpt', 'claude'],
-                    default = 'gpt',
+                    choices=list(prompt.prompters.keys()),
+                    default='gpt',
                     help='Prompt style to use')
 
     ap.add_argument('--model-temperature', type=float, default=0,
@@ -299,15 +300,6 @@ def get_required_modules() -> T.List[str]:
     return [m for m in module_available if module_available[m] != 1]
 
 
-def get_module_name(src_file: Path, src_dir: Path) -> str:
-    # assumes both src_file and src_dir Path.resolve()'d
-    try:
-        relative = src_file.relative_to(src_dir)
-        return ".".join((src_dir.stem,) + relative.parts[:-1] + (relative.stem,))
-    except ValueError:
-        return None  # not relative to source
-
-
 PROGRESS_COUNTERS=['G', 'F', 'U', 'R']  # good, failed, useless, retry
 class Progress:
     """Tracks progress, showing a tqdm-based bar."""
@@ -506,75 +498,13 @@ async def improve_coverage(seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
     global args, progress
 
-    def pl(item, singular, plural = None):
-        if len(item) <= 1:
-            return singular
-        return plural if plural is not None else f"{singular}s"
-
-    module_name = get_module_name(seg.path, args.source_dir)
-
-    content = {}
-    content['gpt'] = f"""
-You are an expert Python test-driven developer.
-The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
-when tested, {seg.lines_branches_missing_do()} not execute.
-Create a new pytest test function that executes these missing lines/branches, always making
-sure that the new test is correct and indeed improves coverage.
-Always send entire Python test scripts when proposing a new test or correcting one you
-previously proposed.
-Be sure to include assertions in the test that verify any applicable postconditions.
-Please also make VERY SURE to clean up after the test, so as not to affect other tests;
-use 'pytest-mock' if appropriate.
-Write as little top-level code as possible, and in particular do not include any top-level code
-calling into pytest.main or the test itself.
-Respond ONLY with the Python code enclosed in backticks, without any explanation.
-```python
-{seg.get_excerpt()}
-```
-"""
-
-    content['claude'] = f"""
-<file path="{seg.filename}" module_name="{module_name}">
-{seg.get_excerpt()}
-</file>
-
-<instructions>
-
-The code above does not achieve full coverage:
-when tested, {seg.lines_branches_missing_do()} not execute.
-
-1. Create a new pytest test function that executes these missing lines/branches, always making
-sure that the new test is correct and indeed improves coverage.
-
-2. Always send entire Python test scripts when proposing a new test or correcting one you
-previously proposed.
-
-3. Be sure to include assertions in the test that verify any applicable postconditions.
-
-4. Please also make VERY SURE to clean up after the test, so as not to affect other tests;
-use 'pytest-mock' if appropriate.
-
-5. Write as little top-level code as possible, and in particular do not include any top-level code
-calling into pytest.main or the test itself.
-
-6.  Respond with the Python code enclosed in backticks. Before answering the question, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.
-</instructions>
-"""
+    def log_prompts(prompts: T.List[dict]):
+        for p in prompts:
+            log_write(seg, p['content'])
     
-    messages = []
-    
-    if args.prompt_family == 'claude':
-        messages.append(
-            { "role": "system",
-              "content": f"You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage."}
-        )
-        
-    messages.append(
-        {"role": "user",
-         "content": content[args.prompt_family]})
-
-    for i in range(len(messages)):
-        log_write(seg, messages[i]['content'])  # initial prompt
+    prompter = prompt.prompters[args.prompt_family](args=args, segment=seg)
+    messages = prompter.initial_prompt()
+    log_prompts(messages)
 
     attempts = 0
 
@@ -629,25 +559,9 @@ calling into pytest.main or the test itself.
 
         except subprocess.CalledProcessError as e:
             state.inc_counter('F')
-            content = {}
-            content['gpt'] = "Executing the test yields an error, shown below.\n" +\
-                           "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
-                           clean_error(str(e.stdout, 'UTF-8', errors='ignore'))
-            content['claude'] = "<error>" + \
-                clean_error(str(e.stdout, 'UTF-8', errors='ignore')) +\
-                "</error>" + \
-                "\nExecuting the test yields an error, shown above.\n" +\
-                "<instructions>\n" + \
-            "1. Modify the test to correct it.\n" + \
-            "2. Respond with the complete Python code in backticks.\n" + \
-            "3. Before answering the question, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.\n" + \
-            "</instructions>\n\n"
-            
-            messages.append({
-                "role": "user",
-                "content": content[args.prompt_family]
-            })
-            log_write(seg, messages[-1]['content'])
+            prompts = prompter.error_prompt(clean_error(str(e.stdout, 'UTF-8', errors='ignore')))
+            messages.extend(prompts)
+            log_prompts(prompts)
             continue
 
         new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
@@ -665,25 +579,10 @@ calling into pytest.main or the test itself.
 
         # XXX insist on len(now_missing_lines)+len(now_missing_branches) == 0 ?
         if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
-            content = {}
-            content['gpt'] = f"""
-This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
-Modify it to correct that; respond only with the complete Python code in backticks.
-"""
-            content['claude'] = f"""
-This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
-<instructions>
-1. Modify it to execute those lines.
-2. Respond with the complete Python code in backticks.
-3. Before responding, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.
-</instructions>
-"""
-            messages.append({
-                "role": "user",
-                "content": content[args.prompt_family]
-            })
-            log_write(seg, messages[-1]['content'])
             state.inc_counter('U')
+            prompts = prompter.missing_coverage_prompt(now_missing_lines, now_missing_branches)
+            messages.extend(prompts)
+            log_prompts(prompts)
             continue
 
         # the test is good 'nough...
