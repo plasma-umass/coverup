@@ -532,10 +532,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 """
 
     content['claude'] = f"""
-<file path="{seg.filename}">
-<module name="{module_name}">
+<file path="{seg.filename}" module_name="{module_name}">
 {seg.get_excerpt()}
-</module>
 </file>
 
 <instructions>
@@ -680,7 +678,7 @@ This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now
 """
             messages.append({
                 "role": "user",
-                "content": content[args.model]
+                "content": content[args.prompt_family]
             })
             log_write(seg, messages[-1]['content'])
             state.inc_counter('U')
