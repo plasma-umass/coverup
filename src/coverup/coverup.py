@@ -55,7 +55,12 @@ def parse_args(args=None):
     ap.add_argument('--model', type=str,
                     help='OpenAI model to use')
 
-    ap.add_argument('--model-temperature', type=str, default=0,
+    ap.add_argument('--prompt-family', type=str,
+                    choices = ['gpt', 'claude'],
+                    default = 'gpt',
+                    help='Prompt style to use')
+
+    ap.add_argument('--model-temperature', type=float, default=0,
                     help='Model "temperature" to use')
 
     ap.add_argument('--line-limit', type=int, default=50,
@@ -506,8 +511,8 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
     module_name = get_module_name(seg.path, args.source_dir)
 
-    messages = [{"role": "user",
-                 "content": f"""
+    content = {}
+    content['gpt'] = f"""
 You are an expert Python test-driven developer.
 The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
 when tested, {seg.lines_branches_missing_do()} not execute.
@@ -525,9 +530,51 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 {seg.get_excerpt()}
 ```
 """
-            }]
 
-    log_write(seg, messages[0]['content'])  # initial prompt
+    content['claude'] = f"""
+<file path="{seg.filename}">
+<module name="{module_name}">
+{seg.get_excerpt()}
+</module>
+</file>
+
+<instructions>
+
+The code above does not achieve full coverage:
+when tested, {seg.lines_branches_missing_do()} not execute.
+
+1. Create a new pytest test function that executes these missing lines/branches, always making
+sure that the new test is correct and indeed improves coverage.
+
+2. Always send entire Python test scripts when proposing a new test or correcting one you
+previously proposed.
+
+3. Be sure to include assertions in the test that verify any applicable postconditions.
+
+4. Please also make VERY SURE to clean up after the test, so as not to affect other tests;
+use 'pytest-mock' if appropriate.
+
+5. Write as little top-level code as possible, and in particular do not include any top-level code
+calling into pytest.main or the test itself.
+
+6.  Respond with the Python code enclosed in backticks. Before answering the question, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.
+</instructions>
+"""
+    
+    messages = []
+    
+    if args.prompt_family == 'claude':
+        messages.append(
+            { "role": "system",
+              "content": f"You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage."}
+        )
+        
+    messages.append(
+        {"role": "user",
+         "content": content[args.prompt_family]})
+
+    for i in range(len(messages)):
+        log_write(seg, messages[i]['content'])  # initial prompt
 
     attempts = 0
 
@@ -582,11 +629,23 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         except subprocess.CalledProcessError as e:
             state.inc_counter('F')
-            messages.append({
-                "role": "user",
-                "content": "Executing the test yields an error, shown below.\n" +\
+            content = {}
+            content['gpt'] = "Executing the test yields an error, shown below.\n" +\
                            "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
                            clean_error(str(e.stdout, 'UTF-8', errors='ignore'))
+            content['claude'] = "<error>" + \
+                clean_error(str(e.stdout, 'UTF-8', errors='ignore')) +\
+                "</error>" + \
+                "\nExecuting the test yields an error, shown above.\n" +\
+                "<instructions>\n" + \
+            "1. Modify the test to correct it.\n" + \
+            "2. Respond with the complete Python code in backticks.\n" + \
+            "3. Before answering the question, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.\n" + \
+            "</instructions>\n\n"
+            
+            messages.append({
+                "role": "user",
+                "content": content[args.prompt_family]
             })
             log_write(seg, messages[-1]['content'])
             continue
@@ -606,12 +665,22 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         # XXX insist on len(now_missing_lines)+len(now_missing_branches) == 0 ?
         if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
-            messages.append({
-                "role": "user",
-                "content": f"""
+            content = {}
+            content['gpt'] = f"""
 This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
 Modify it to correct that; respond only with the complete Python code in backticks.
 """
+            content['claude'] = f"""
+This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
+<instructions>
+1. Modify it to execute those lines.
+2. Respond with the complete Python code in backticks.
+3. Before responding, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.
+</instructions>
+"""
+            messages.append({
+                "role": "user",
+                "content": content[args.model]
             })
             log_write(seg, messages[-1]['content'])
             state.inc_counter('U')
