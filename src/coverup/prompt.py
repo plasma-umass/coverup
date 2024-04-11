@@ -37,15 +37,15 @@ class Prompter(abc.ABC):
         """Returns prompts(s) in response to the suggested test lacking coverage."""
 
 
-def message(content: str, *, role="user") -> dict:
+def _message(content: str, *, role="user") -> dict:
     return {
         'role': role,
         'content': content
     }
 
 
-class Gpt4Prompter(Prompter):
-    """Prompter for GPT-4."""
+class Gpt4PrompterV1(Prompter):
+    """Prompter for GPT-4 used in paper submission."""
 
     def __init__(self, *args, **kwargs):
         Prompter.__init__(self, *args, **kwargs)
@@ -57,7 +57,7 @@ class Gpt4Prompter(Prompter):
         module_name = get_module_name(seg.path, args.source_dir)
 
         return [
-            message(f"""
+            _message(f"""
 You are an expert Python test-driven developer.
 The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
 when tested, {seg.lines_branches_missing_do()} not execute.
@@ -77,9 +77,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 """)
         ]
 
-
     def error_prompt(self, error: str) -> T.List[dict]:
-        return [message(f"""\
+        return [_message(f"""\
 Executing the test yields an error, shown below.
 Modify the test to correct it; respond only with the complete Python code in backticks.
 
@@ -88,12 +87,63 @@ Modify the test to correct it; respond only with the complete Python code in bac
 
 
     def missing_coverage_prompt(self, now_missing_lines: set, now_missing_branches: set) -> T.List[dict]:
-        return [message(f"""\
+        return [_message(f"""\
 This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
 Modify it to correct that; respond only with the complete Python code in backticks.
 """)
         ]
 
+
+class Gpt4Prompter(Prompter):
+    """Prompter for GPT-4."""
+
+    def __init__(self, *args, **kwargs):
+        Prompter.__init__(self, *args, **kwargs)
+
+
+    def initial_prompt(self) -> T.List[dict]:
+        args = self.args
+        seg = self.segment
+        module_name = get_module_name(seg.path, args.source_dir)
+        filename = seg.path.relative_to(args.source_dir.parent)
+
+        return [
+            _message(f"""
+You are an expert Python test-driven developer.
+The code below, extracted from {filename}, does not achieve full coverage:
+when tested, {seg.lines_branches_missing_do()} not execute.
+Create new pytest test functions that execute these missing lines/branches, always making
+sure that the tests are correct and indeed improve coverage.
+Always send entire Python test scripts when proposing a new test or correcting one you
+previously proposed.
+Be sure to include assertions in the test that verify any applicable postconditions.
+Please also make VERY SURE to clean up after the test, so as to avoid state pollution;
+use 'monkeypatch' or 'pytest-mock' if appropriate.
+Write as little top-level code as possible, and in particular do not include any top-level code
+calling into pytest.main or the test itself.
+Respond ONLY with the Python code enclosed in backticks, without any explanation.
+```python
+{seg.get_excerpt()}
+```
+""")
+        ]
+
+
+    def error_prompt(self, error: str) -> T.List[dict]:
+        return [_message(f"""\
+Executing the test yields an error, shown below.
+Modify the test to correct it; respond only with the complete Python code in backticks.
+
+{error}""")
+        ]
+
+
+    def missing_coverage_prompt(self, now_missing_lines: set, now_missing_branches: set) -> T.List[dict]:
+        return [_message(f"""\
+This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
+Modify it to correct that; respond only with the complete Python code in backticks.
+""")
+        ]
 
 class ClaudePrompter(Prompter):
     """Prompter for Claude."""
@@ -108,9 +158,9 @@ class ClaudePrompter(Prompter):
         module_name = get_module_name(seg.path, args.source_dir)
 
         return [
-            message("You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage.",
+            _message("You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage.",
                     role="system"),
-            message(f"""
+            _message(f"""
 <file path="{seg.filename}" module_name="{module_name}">
 {seg.get_excerpt()}
 </file>
@@ -141,7 +191,7 @@ calling into pytest.main or the test itself.
 
 
     def error_prompt(self, error: str) -> T.List[dict]:
-        return [message(f"""\
+        return [_message(f"""\
 <error>{error}</error>
 Executing the test yields an error, shown above.
 <instructions>
@@ -154,7 +204,7 @@ Executing the test yields an error, shown above.
 
 
     def missing_coverage_prompt(self, now_missing_lines: set, now_missing_branches: set) -> T.List[dict]:
-        return [message(f"""\
+        return [_message(f"""\
 This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
 <instructions>
 1. Modify it to execute those lines.
@@ -167,6 +217,7 @@ This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now
 
 # prompter registry
 prompters = {
+    "gpt-v1": Gpt4PrompterV1,
     "gpt": Gpt4Prompter,
     "claude": ClaudePrompter
 }
