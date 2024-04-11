@@ -242,6 +242,7 @@ def check_whole_suite() -> None:
 
 
 def find_imports(python_code: str) -> T.List[str]:
+    """Collects a list of packages needed by a program by examining its 'import' statements"""
     import ast
 
     try:
@@ -258,7 +259,8 @@ def find_imports(python_code: str) -> T.List[str]:
                     modules.append(name.name.split('.')[0])
 
         elif isinstance(n, ast.ImportFrom):
-            modules.append(n.module.split('.')[0])
+            if n.module and n.level == 0:
+                modules.append(n.module.split('.')[0])
 
     return modules
 

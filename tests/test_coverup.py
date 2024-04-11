@@ -83,10 +83,11 @@ E   ImportError: cannot import name 'JSONProvider' from 'flask.json' (/Users/jua
 
 
 def test_find_imports():
-    assert ['abc', 'bar', 'baz', 'cba', 'foo', 'xy'] == sorted(coverup.find_imports("""\
+    assert ['abc', 'bar', 'baz', 'cba', 'foo'] == sorted(coverup.find_imports("""\
 import foo, bar.baz
 from baz.zab import a, b, c
-from ..xy import yz
+from ..xy import yz         # relative, package likely present
+from . import blah          # relative, package likely present
 
 def foo_func():
     import abc
