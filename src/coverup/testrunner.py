@@ -37,60 +37,30 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
     return cov["files"]
 
 
-class TestRunnerError(Exception):
-    def __init__(self, message: str, outcomes, returncode, stdout):
-        super(TestRunnerError, self).__init__(message + f"; rc={returncode}")
-        self.outcomes = outcomes
-        self.returncode = returncode
-        self.stdout = stdout
-
-
-def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None):
+def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None, isolate_tests=False):
     """Runs an entire test suite and returns the coverage obtained."""
+
     with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
-        with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as o:
+        try:
+            command = [sys.executable,
+                       '-m', 'slipcover', '--source', source_dir, '--branch', '--json', '--out', j.name] + \
+                            (['--isolate-tests'] if isolate_tests else []) +\
+                      ['-m', 'pytest'] + pytest_args.split() + ['-qq', '--disable-warnings', '-x', tests_dir]
+
+            if trace: trace(command)
+            p = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
+                if trace: trace(f"tests rc={p.returncode}")
+                p.check_returncode()
+
+            return json.load(j)
+        finally:
+            j.close()
+
             try:
-                p = subprocess.run([sys.executable,
-                                    '-m', 'slipcover', '--source', source_dir, '--branch', '--json', '--out', j.name,
-                                    '-m', 'pytest'] + pytest_args.split() +\
-                                    ['-p', 'coverup.pytest_plugin', '--coverup-outcomes', str(o.name),
-                                     '-qq', '--disable-warnings', tests_dir],
-                                   check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-
-                if trace:
-                    trace(f"tests rc={p.returncode}")
-                    trace(str(p.stdout, 'UTF-8', errors='ignore'))
-
-                outcomes = None
-                try:
-                    outcomes = json.load(o)
-                    if not tests_dir.is_absolute():
-                        parent = tests_dir.resolve().parent
-                        outcomes = {Path(p).relative_to(parent): o for p, o in outcomes.items()}
-                    else:
-                        outcomes = {Path(p): o for p, o in outcomes.items()}
-
-                except:
-                    pass
-
-                if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
-                    raise TestRunnerError("Test suite execution failed", outcomes,
-                                          p.returncode, str(p.stdout, 'UTF-8', errors='ignore'))
-
-                return json.load(j)
-            finally:
-                j.close()
-                o.close()
-
-                try:
-                    os.unlink(j.name)
-                except FileNotFoundError:
-                    pass
-
-                try:
-                    os.unlink(o.name)
-                except FileNotFoundError:
-                    pass
+                os.unlink(j.name)
+            except FileNotFoundError:
+                pass
 
 
 class BadTestFinderError(Exception):

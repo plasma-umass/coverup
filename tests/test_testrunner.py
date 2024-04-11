@@ -55,10 +55,23 @@ def test_measure_suite_coverage_test_fails(absolute, fail_collect):
 
         failing, culprit = make_failing_suite(tests_dir, fail_collect)
 
-        with pytest.raises(tr.TestRunnerError) as einfo:
-            tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'))
+        with pytest.raises(subprocess.CalledProcessError) as einfo:
+            tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'), isolate_tests=False)
 
-        assert {failing} == set(p for p, o in einfo.value.outcomes.items() if o != 'passed')
+
+@pytest.mark.parametrize("fail_collect", [True, False])
+@pytest.mark.parametrize("absolute", [True, False])
+def test_measure_suite_coverage_isolated(absolute, fail_collect):
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tests_dir:
+        tests_dir = Path(tests_dir)
+        if absolute:
+            tests_dir = tests_dir.resolve()
+
+        failing, culprit = make_failing_suite(tests_dir, fail_collect)
+
+        tr.measure_suite_coverage(tests_dir=tests_dir, source_dir=Path('src'), isolate_tests=True)
+
+        # FIXME check coverage
 
 
 def test_finds_tests_in_subdir(tmpdir):
