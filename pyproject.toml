@@ -23,7 +23,8 @@ dependencies = [
     "aiolimiter",
     "tqdm",
     "llm_utils",
-    "slipcover>=1.0.3",
+    "slipcover>=1.0.6",
+    "pytest-forked",
     "litellm>=1.33.1"
 ]
 
