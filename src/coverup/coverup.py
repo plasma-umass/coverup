@@ -53,7 +53,13 @@ def parse_args(args=None):
     ap.add_argument('--no-checkpoint', action='store_const', const=None, dest='checkpoint', default=argparse.SUPPRESS,
                     help=f'disables checkpoint')
 
-    ap.add_argument('--model', type=str,
+    def default_model():
+        if 'OPENAI_API_KEY' in os.environ:
+            return "openai/gpt-4-1106-preview"
+        if 'ANTHROPIC_API_KEYS' in os.environ or 'AWS_ACCESS_KEY_ID' in os.environ:
+            return "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+
+    ap.add_argument('--model', type=str, default=default_model(),
                     help='OpenAI model to use')
 
     ap.add_argument('--prompt-family', type=str,
@@ -119,6 +125,10 @@ def parse_args(args=None):
     ap.add_argument('--debug', '-d', default=False,
                     action=argparse.BooleanOptionalAction,
                     help='print out debugging messages.')
+
+    ap.add_argument('--add-to-pythonpath', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help='add (parent of) source directory to PYTHONPATH')
 
     def positive_int(value):
         ivalue = int(value)
@@ -618,7 +628,8 @@ def main():
         return 1
 
     # add source dir to paths so that the module doesn't need to be installed to be worked on
-    add_to_pythonpath(args.source_dir)
+    if args.add_to_pythonpath:
+        add_to_pythonpath(args.source_dir)
 
     if args.prompt_for_tests:
         if args.rate_limit or token_rate_limit_for_model(args.model):
@@ -629,7 +640,7 @@ def main():
 
 
         # Check for an API key for OpenAI or Amazon Bedrock.
-        if 'OPENAI_API_KEY' not in os.environ:
+        if 'OPENAI_API_KEY' not in os.environ and 'ANTHROPIC_API_KEY' not in os.environ:
             if not all(x in os.environ for x in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION_NAME']):
                 print("You need a key (or keys) from an AI service to use CoverUp.")
                 print()
@@ -637,6 +648,11 @@ def main():
                 print("  You can get a key here: https://platform.openai.com/api-keys")
                 print("  Set the environment variable OPENAI_API_KEY to your key value:")
                 print("    export OPENAI_API_KEY=<your key>")
+                print()
+                print()
+                print("Anthropic:")
+                print("  Set the environment variable ANTHROPIC_API_KEY to your key value:")
+                print("    export ANTHROPIC_API_KEY=<your key>")
                 print()
                 print()
                 print("Bedrock:")
@@ -652,17 +668,9 @@ def main():
                 print()
                 return 1
 
-        if 'OPENAI_API_KEY' in os.environ:
-            if not args.model:
-                # args.model = "openai/gpt-4"
-                args.model = "openai/gpt-4-1106-preview"
-            # openai.key=os.environ['OPENAI_API_KEY']
-            #if 'OPENAI_ORGANIZATION' in os.environ:
-            #    openai.organization=os.environ['OPENAI_ORGANIZATION']
-        else:
-            # args.model = "bedrock/anthropic.claude-v2:1"
-            if not args.model:
-                args.model = "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+        if not args.model:
+            print("Please specify model to use with --model")
+            return 1
 
         log_write('startup', f"Command: {' '.join(sys.argv)}")
 
