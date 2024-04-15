@@ -26,6 +26,7 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
                 if log_write:
                     log_write(str(p.stdout, 'UTF-8', errors='ignore'))
 
+                # not checking for JSON errors here because if pytest aborts, its RC ought to be !=0
                 cov = json.load(j)
             finally:
                 j.close()
@@ -53,7 +54,12 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='',
                 if trace: trace(f"tests rc={p.returncode}")
                 p.check_returncode()
 
-            return json.load(j)
+            try:
+                return json.load(j)
+            except json.decoder.JSONDecodeError:
+                # The JSON is broken, so pytest's execution likely aborted (e.g. a Python unhandled exception).
+                p.check_returncode() # this will almost certainly raise an exception. If not, we do it ourselves:
+                raise subprocess.CalledProcessError(p.returncode, command, output=p.stdout)
         finally:
             j.close()
 
@@ -136,7 +142,13 @@ class BadTestsFinder(DeltaDebugger):
                         self.trace(f"tests rc={p.returncode}")
                         p.check_returncode()
 
-                    outcomes = json.load(outcomes_f)
+                    try:
+                        outcomes = json.load(outcomes_f)
+                    except json.decoder.JSONDecodeError:
+                        # The JSON is broken, so pytest's execution likely aborted (e.g. a Python unhandled exception).
+                        p.check_returncode() # this will almost certainly raise an exception. If not, we do it ourselves:
+                        raise subprocess.CalledProcessError(p.returncode, command, output=p.stdout)
+
                 finally:
                     outcomes_f.close()
                     try:
