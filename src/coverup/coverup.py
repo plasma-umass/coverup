@@ -132,6 +132,10 @@ def parse_args(args=None):
                     action=argparse.BooleanOptionalAction,
                     help='add (parent of) source directory to PYTHONPATH')
 
+    ap.add_argument('--branch-coverage', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help=argparse.SUPPRESS)
+
     def positive_int(value):
         ivalue = int(value)
         if ivalue < 0: raise argparse.ArgumentTypeError("must be a number >= 0")
@@ -216,6 +220,7 @@ def check_whole_suite() -> None:
         print("Checking test suite...  ", end='', flush=True)
         try:
             btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=pytest_args,
+                                 branch_coverage=args.branch_coverage,
                                  trace=(print if args.debug else None))
             outcomes = btf.run_tests()
             failing_tests = list(p for p, o in outcomes.items() if o == 'failed')
@@ -240,6 +245,7 @@ def check_whole_suite() -> None:
 
             try:
                 btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                     branch_coverage=args.branch_coverage,
                                      trace=(print if args.debug else None),
                                      progress=(print if args.debug else print_noeol))
 
@@ -561,6 +567,7 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
         try:
             result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                                 branch_coverage=args.branch_coverage,
                                                  log_write=lambda msg: log_write(seg, msg))
 
         except subprocess.TimeoutExpired:
@@ -578,7 +585,7 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
         new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
         new_branches = set(tuple(b) for b in result[seg.filename]['executed_branches']) \
-                       if seg.filename in result else set()
+                       if (seg.filename in result and 'executed_branches' in result[seg.filename]) else set()
         now_missing_lines = seg.missing_lines - new_lines
         now_missing_branches = seg.missing_branches - new_branches
 
@@ -691,6 +698,7 @@ def main():
                 coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
                                                   pytest_args=args.pytest_args,
                                                   isolate_tests=args.isolate_tests,
+                                                  branch_coverage=args.branch_coverage,
                                                   trace=(print if args.debug else None))
                 state = State(coverage)
 
@@ -777,6 +785,7 @@ def main():
             coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
                                               pytest_args=args.pytest_args,
                                               isolate_tests=args.isolate_tests,
+                                              branch_coverage=args.branch_coverage,
                                               trace=(print if args.debug else None))
 
         except subprocess.CalledProcessError as e:

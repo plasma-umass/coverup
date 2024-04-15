@@ -11,7 +11,7 @@ from .delta import DeltaDebugger, _compact
 from .utils import subprocess_run
 
 
-async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None):
+async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None, branch_coverage=True):
     """Runs a given test and returns the coverage obtained."""
     with tempfile.NamedTemporaryFile(prefix="tmp_test_", suffix='.py', dir=str(tests_dir), mode="w") as t:
         t.write(test)
@@ -20,7 +20,8 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
         with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
             try:
                 # -qq to cut down on tokens
-                p = await subprocess_run([sys.executable, '-m', 'slipcover', '--branch', '--json', '--out', j.name,
+                p = await subprocess_run([sys.executable, '-m', 'slipcover'] + (['--branch'] if branch_coverage else []) + \
+                                         ['--json', '--out', j.name,
                                           '-m', 'pytest'] + pytest_args.split() + ['-qq', '-x', '--disable-warnings', t.name],
                                          check=True, timeout=60)
                 if log_write:
@@ -38,14 +39,15 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
     return cov["files"]
 
 
-def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None, isolate_tests=False):
+def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None, isolate_tests=False, branch_coverage=True):
     """Runs an entire test suite and returns the coverage obtained."""
 
     with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
         try:
             command = [sys.executable,
-                       '-m', 'slipcover', '--source', source_dir, '--branch', '--json', '--out', j.name] + \
-                            (['--isolate-tests'] if isolate_tests else []) +\
+                       '-m', 'slipcover', '--source', source_dir] + (['--branch'] if branch_coverage else []) + \
+                            ['--json', '--out', j.name] + \
+                            (['--isolate-tests'] if isolate_tests else []) + \
                       ['-m', 'pytest'] + pytest_args.split() + ['-qq', '--disable-warnings', '-x', tests_dir]
 
             if trace: trace(command)
@@ -75,7 +77,7 @@ class BadTestFinderError(Exception):
 
 class BadTestsFinder(DeltaDebugger):
     """Finds tests that cause other tests to fail."""
-    def __init__(self, *, tests_dir: Path, pytest_args: str = '', trace = None, progress = None):
+    def __init__(self, *, tests_dir: Path, pytest_args: str = '', trace = None, progress = None, branch_coverage=True):
         super(BadTestsFinder, self).__init__(trace=trace)
         self.tests_dir = tests_dir
 
@@ -90,6 +92,7 @@ class BadTestsFinder(DeltaDebugger):
 
         self.all_tests = set(find_tests(self.tests_dir))
         self.pytest_args = pytest_args.split()
+        self.branch_coverage = branch_coverage
         self.progress = progress
 
 
@@ -127,7 +130,8 @@ class BadTestsFinder(DeltaDebugger):
                     command = [sys.executable,
                                # include SlipCover in case a test is failing because of it
                                # (in measure_suite_coverage)
-                               '-m', 'slipcover', '--branch', '--out', '/dev/null',
+                               '-m', 'slipcover'] + (['--branch'] if self.branch_coverage else []) + \
+                                    ['--out', '/dev/null',
                                "-m", "pytest"] + self.pytest_args + \
                               ['-qq', '--disable-warnings',
                                '-p', 'coverup.pytest_plugin', '--coverup-outcomes', str(outcomes_f.name)] \
