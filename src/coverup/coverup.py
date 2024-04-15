@@ -201,7 +201,7 @@ def check_whole_suite() -> None:
         pytest_args += " -x"  # stop at first (to save time)
 
     while True:
-        print("Checking test suite...  ", end='')
+        print("Checking test suite...  ", end='', flush=True)
         try:
             btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=pytest_args,
                                  trace=(print if args.debug else None))
@@ -669,7 +669,7 @@ def main():
         # --- (1) load or measure initial coverage, figure out segmentation ---
 
         if args.checkpoint and (state := State.load_checkpoint(args.checkpoint)):
-            print("Continuing from checkpoint;  coverage: ", end='')
+            print("Continuing from checkpoint;  coverage: ", end='', flush=True)
             coverage = state.get_initial_coverage()
         else:
             if args.disable_polluting or args.disable_failing:
@@ -677,7 +677,7 @@ def main():
                 check_whole_suite()
 
             try:
-                print("Measuring coverage...  ", end='')
+                print("Measuring coverage...  ", end='', flush=True)
                 coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
                                                   pytest_args=args.pytest_args,
                                                   isolate_tests=args.isolate_tests,
@@ -763,7 +763,7 @@ def main():
 
     if args.prompt_for_tests:
         try:
-            print("Measuring coverage...   ", end='')
+            print("Measuring coverage...  ", end='', flush=True)
             coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
                                               pytest_args=args.pytest_args,
                                               isolate_tests=args.isolate_tests,
