@@ -56,7 +56,9 @@ def parse_args(args=None):
     def default_model():
         if 'OPENAI_API_KEY' in os.environ:
             return "openai/gpt-4-1106-preview"
-        if 'ANTHROPIC_API_KEYS' in os.environ or 'AWS_ACCESS_KEY_ID' in os.environ:
+        if 'ANTHROPIC_API_KEY' in os.environ:
+            return "anthropic/claude-3-sonnet-20240229"
+        if 'AWS_ACCESS_KEY_ID' in os.environ:
             return "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
 
     ap.add_argument('--model', type=str, default=default_model(),
