@@ -476,7 +476,9 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
             return await litellm.acreate(**completion)
 
-        except (openai.RateLimitError, openai.APITimeoutError, litellm.APIError, litellm.exceptions.ServiceUnavailableError) as e:
+        except (litellm.exceptions.ServiceUnavailableError,
+                openai.RateLimitError,
+                openai.APITimeoutError) as e:
 
             # This message usually indicates out of money in account
             if 'You exceeded your current quota' in str(e):
@@ -496,14 +498,17 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             log_write(seg, f"Error: {type(e)} {e}")
             return None # gives up this segment
 
-        except (ConnectionError) as e:
+        except openai.APIConnectionError as e:
             log_write(seg, f"Error: {type(e)} {e}")
             # usually a server-side error... just retry right away
             state.inc_counter('R')
 
-        except subprocess.CalledProcessError as e:
-            print(f"coverup: subprocess.CalledProcessError {e.returncode}: {str(e.stdout, 'UTF-8', errors='ignore')}")
-
+        except openai.APIError as e:
+            # APIError is the base class for all API errors;
+            # we may be missing a more specific handler.
+            print(f"Error: {type(e)} {e}; missing handler?")
+            log_write(seg, f"Error: {type(e)} {e}")
+            return None # gives up this segment
 
 def extract_python(response: str) -> str:
     # This regex accepts a truncated code block... this seems fine since we'll try it anyway
