@@ -48,7 +48,7 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='',
                        '-m', 'slipcover', '--source', source_dir] + (['--branch'] if branch_coverage else []) + \
                             ['--json', '--out', j.name] + \
                             (['--isolate-tests'] if isolate_tests else []) + \
-                      ['-m', 'pytest'] + pytest_args.split() + ['-qq', '--disable-warnings', '-x', tests_dir]
+                      ['-m', 'pytest'] + pytest_args.split() + ['--disable-warnings', '-x', tests_dir]
 
             if trace: trace(command)
             p = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
