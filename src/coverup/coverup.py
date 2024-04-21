@@ -709,8 +709,6 @@ def main():
 
             except subprocess.CalledProcessError as e:
                 print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8', errors='ignore'))
-                print()
-                print("You may want to use --isolate-tests, --disable-polluting or --disable-failing")
                 return 1
 
         print(f"{coverage['summary']['percent_covered']:.1f}%")
