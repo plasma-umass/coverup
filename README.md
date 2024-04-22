@@ -1,6 +1,8 @@
+<!--
 <img src="images/logo.png?raw=True" align="right" width="20%"/>
-
-# CoverUp: Automatically Generating Higher-Coverage Test Suites with AI
+# CoverUp: Automatically Generating Higher-Coverage Test Suites with AI !
+-->
+<img src="images/logo-with-title.png?raw=True" align="right" width="100%"/>
 
 by [Juan Altmayer Pizzorno](https://jaltmayerpizzorno.github.io) and [Emery Berger](https://emeryberger.com)
 at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
