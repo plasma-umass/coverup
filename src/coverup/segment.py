@@ -12,6 +12,7 @@ class CodeSegment:
                  executed_lines: T.Set[int],
                  missing_branches: T.Set[T.Tuple[int, int]],
                  context: T.List[T.Tuple[int, int]]):
+        self.path = Path(filename).resolve()
         self.filename = filename
         self.name = name
         self.begin = begin

@@ -1,6 +1,12 @@
 import asyncio
 import json
-import litellm # type: ignore
+import warnings
+
+with warnings.catch_warnings():
+    # ignore pydantic warnings https://github.com/BerriAI/litellm/issues/2832
+    warnings.simplefilter('ignore')
+    import litellm # type: ignore
+
 import logging
 import openai
 import subprocess
@@ -14,9 +20,8 @@ from datetime import datetime
 from .llm import *
 from .segment import *
 from .testrunner import *
+from . import prompt
 
-
-PREFIX = 'coverup'
 
 # Turn off most logging
 litellm.set_verbose = False
@@ -33,7 +38,7 @@ def parse_args(args=None):
                     help='only process certain source file(s)')
 
     def Path_dir(value):
-        path_dir = Path(value)
+        path_dir = Path(value).resolve()
         if not path_dir.is_dir(): raise argparse.ArgumentTypeError("must be a directory")
         return path_dir
 
@@ -48,10 +53,23 @@ def parse_args(args=None):
     ap.add_argument('--no-checkpoint', action='store_const', const=None, dest='checkpoint', default=argparse.SUPPRESS,
                     help=f'disables checkpoint')
 
-    ap.add_argument('--model', type=str,
+    def default_model():
+        if 'OPENAI_API_KEY' in os.environ:
+            return "openai/gpt-4-1106-preview"
+        if 'ANTHROPIC_API_KEY' in os.environ:
+            return "anthropic/claude-3-sonnet-20240229"
+        if 'AWS_ACCESS_KEY_ID' in os.environ:
+            return "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+
+    ap.add_argument('--model', type=str, default=default_model(),
                     help='OpenAI model to use')
 
-    ap.add_argument('--model-temperature', type=str, default=0,
+    ap.add_argument('--prompt-family', type=str,
+                    choices=list(prompt.prompters.keys()),
+                    default='gpt',
+                    help='Prompt style to use')
+
+    ap.add_argument('--model-temperature', type=float, default=0,
                     help='Model "temperature" to use')
 
     ap.add_argument('--line-limit', type=int, default=50,
@@ -74,7 +92,7 @@ def parse_args(args=None):
                     action=argparse.BooleanOptionalAction,
                     help=f'show details of lines/branches after each response')
 
-    ap.add_argument('--log-file', default=f"{PREFIX}-log",
+    ap.add_argument('--log-file', default=f"coverup-log",
                     help='log file to use')
 
     ap.add_argument('--pytest-args', type=str, default='',
@@ -84,19 +102,39 @@ def parse_args(args=None):
                     action=argparse.BooleanOptionalAction,
                     help='attempt to install any missing modules')
 
+    ap.add_argument('--prefix', type=str, default='coverup',
+                    help='prefix to use for test file names')
+
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
 
-    ap.add_argument('--failing-test-action', choices=['disable', 'find-culprit'], default='disable',
-                    help='what to do about failing tests when checking the entire suite.')
-
-    ap.add_argument('--only-disable-interfering-tests', default=False,
+    ap.add_argument('--disable-polluting', default=False,
                     action=argparse.BooleanOptionalAction,
-                    help='rather than try to add new tests, only look for tests causing others to fail and disable them.')
+                    help='look for tests causing others to fail and disable them')
+
+    ap.add_argument('--disable-failing', default=False,
+                    action=argparse.BooleanOptionalAction,
+                    help='look for failing tests and disable them')
+
+    ap.add_argument('--prompt-for-tests', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help='prompt LLM for new tests')
+
+    ap.add_argument('--isolate-tests', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help='run tests in isolation (to work around any state pollution) when measuring suite coverage')
 
     ap.add_argument('--debug', '-d', default=False,
                     action=argparse.BooleanOptionalAction,
                     help='print out debugging messages.')
+
+    ap.add_argument('--add-to-pythonpath', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help='add (parent of) source directory to PYTHONPATH')
+
+    ap.add_argument('--branch-coverage', default=True,
+                    action=argparse.BooleanOptionalAction,
+                    help=argparse.SUPPRESS)
 
     def positive_int(value):
         ivalue = int(value)
@@ -106,13 +144,21 @@ def parse_args(args=None):
     ap.add_argument('--max-concurrency', type=positive_int, default=50,
                     help='maximum number of parallel requests; 0 means unlimited')
 
-    return ap.parse_args(args)
+    args = ap.parse_args(args)
+
+    for i in range(len(args.source_files)):
+        args.source_files[i] = args.source_files[i].resolve()
+
+    if args.disable_failing and args.disable_polluting:
+        ap.error('Specify only one of --disable-failing and --disable-polluting')
+
+    return args
 
 
 def test_file_path(test_seq: int) -> Path:
     """Returns the Path for a test's file, given its sequence number."""
     global args
-    return args.tests_dir / f"test_{PREFIX}_{test_seq}.py"
+    return args.tests_dir / f"test_{args.prefix}_{test_seq}.py"
 
 
 test_seq = 1
@@ -163,44 +209,59 @@ def log_write(seg: CodeSegment, m: str) -> None:
     log_file.write(f"---- {datetime.now().isoformat(timespec='seconds')} {seg} ----\n{m}\n")
 
 
-def disable_interfering_tests() -> dict:
-    """While the test suite fails, disables any interfering tests.
-       If the test suite succeeds, returns the coverage observed."""
+def check_whole_suite() -> None:
+    """Check whole suite and disable any polluting/failing tests."""
+
+    pytest_args = args.pytest_args
+    if args.disable_polluting:
+        pytest_args += " -x"  # stop at first (to save time)
 
     while True:
-        print("Checking test suite...  ", end='')
+        print("Checking test suite...  ", end='', flush=True)
         try:
-            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
-                                              pytest_args=args.pytest_args,
-                                              trace=(print if args.debug else None))
-            print("tests ok!")
-            return coverage
+            btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=pytest_args,
+                                 branch_coverage=args.branch_coverage,
+                                 trace=(print if args.debug else None))
+            outcomes = btf.run_tests()
+            failing_tests = list(p for p, o in outcomes.items() if o == 'failed')
+            if not failing_tests:
+                print("tests ok!")
+                return
 
         except subprocess.CalledProcessError as e:
-            failing_test = parse_failed_tests(args.tests_dir, e)[0]
+            print(str(e) + "\n" + str(e.stdout, 'UTF-8', errors='ignore'))
+            sys.exit(1)
 
-        btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
-                             trace=(print if args.debug else None))
-
-        if args.failing_test_action == 'disable':
-            # just disable failing test(s) while we work on BTF
-            print(f"failed ({failing_test}).  Looking for failing tests(s) to disable...")
-            culprits = btf.run_tests()
+        if args.disable_failing:
+            print(f"{len(failing_tests)} test(s) failed, disabling...")
+            to_disable = failing_tests
 
         else:
-            print(f"{failing_test} is failing, looking for culprit(s)...")
-            if btf.run_tests({failing_test}) == {failing_test}:
-                print(f"{failing_test} fails by itself(!)")
-                culprits = {failing_test}
-            else:
-                culprits = btf.find_culprit(failing_test)
+            print(f"{failing_tests[0]} failed; Looking for culprit(s)...")
 
-        for c in culprits:
-            print(f"Disabling {c}")
-            c.rename(c.parent / ("disabled_" + c.name))
+            def print_noeol(message):
+                # ESC[K clears the rest of the line
+                print(message, end='...\033[K\r', flush=True)
+
+            try:
+                btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                     branch_coverage=args.branch_coverage,
+                                     trace=(print if args.debug else None),
+                                     progress=(print if args.debug else print_noeol))
+
+                to_disable = btf.find_culprit(failing_tests[0])
+
+            except BadTestFinderError as e:
+                print(e)
+                to_disable = {failing_tests[0]}
+
+        for t in to_disable:
+            print(f"Disabling {t}")
+            t.rename(t.parent / ("disabled_" + t.name))
 
 
 def find_imports(python_code: str) -> T.List[str]:
+    """Collects a list of packages needed by a program by examining its 'import' statements"""
     import ast
 
     try:
@@ -217,7 +278,8 @@ def find_imports(python_code: str) -> T.List[str]:
                     modules.append(name.name.split('.')[0])
 
         elif isinstance(n, ast.ImportFrom):
-            modules.append(n.module.split('.')[0])
+            if n.module and n.level == 0:
+                modules.append(n.module.split('.')[0])
 
     return modules
 
@@ -245,7 +307,7 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
             print(f"Installed module {module}")
             log_write(seg, f"Installed module {module}")
         except subprocess.CalledProcessError as e:
-            log_write(seg, f"Unable to install module {module}:\n{e.stdout}")
+            log_write(seg, f"Unable to install module {module}:\n{str(e.stdout, 'UTF-8', errors='ignore')}")
             all_ok = False
 
     return all_ok
@@ -254,16 +316,6 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
 def get_required_modules() -> T.List[str]:
     """Returns a list of the modules originally missing (i.e., even if we installed them)"""
     return [m for m in module_available if module_available[m] != 1]
-
-
-def get_module_name(src_file: Path, src_dir: Path) -> str:
-    try:
-        src_file = Path(src_file)
-        src_dir = Path(src_dir)
-        relative = src_file.resolve().relative_to(src_dir.resolve())
-        return ".".join((src_dir.stem,) + relative.parts[:-1] + (relative.stem,))
-    except ValueError:
-        return None  # not relative to source
 
 
 PROGRESS_COUNTERS=['G', 'F', 'U', 'R']  # good, failed, useless, retry
@@ -357,12 +409,12 @@ class State:
 
     def mark_done(self, seg: CodeSegment):
         """Marks a segment done."""
-        self.done[seg.filename].add((seg.begin, seg.end))
+        self.done[seg.path].add((seg.begin, seg.end))
 
 
     def is_done(self, seg: CodeSegment):
         """Returns whether a segment is done."""
-        return (seg.begin, seg.end) in self.done[seg.filename]
+        return (seg.begin, seg.end) in self.done[seg.path]
 
 
     @staticmethod
@@ -377,7 +429,7 @@ class State:
 
                 state = State(ckpt['coverage'])
                 for filename, done_list in ckpt['done'].items():
-                    state.done[filename] = set(tuple(d) for d in done_list)
+                    state.done[Path(filename).resolve()] = set(tuple(d) for d in done_list)
                 state.add_usage(ckpt['usage'])
                 if 'counters' in ckpt:
                     state.counters = ckpt['counters']
@@ -391,7 +443,7 @@ class State:
         """Saves this state to a checkpoint file."""
         ckpt = {
             'version': 1,
-            'done': {k:list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'set' as-is
+            'done': {str(k):list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'Path' or 'set' as-is
             'usage': self.usage,
             'counters': self.counters,
             'coverage': self.coverage
@@ -424,7 +476,9 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
 
             return await litellm.acreate(**completion)
 
-        except (openai.RateLimitError, openai.APITimeoutError) as e:
+        except (litellm.exceptions.ServiceUnavailableError,
+                openai.RateLimitError,
+                openai.APITimeoutError) as e:
 
             # This message usually indicates out of money in account
             if 'You exceeded your current quota' in str(e):
@@ -444,11 +498,17 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             log_write(seg, f"Error: {type(e)} {e}")
             return None # gives up this segment
 
-        except (ConnectionError) as e:
+        except openai.APIConnectionError as e:
             log_write(seg, f"Error: {type(e)} {e}")
             # usually a server-side error... just retry right away
             state.inc_counter('R')
 
+        except openai.APIError as e:
+            # APIError is the base class for all API errors;
+            # we may be missing a more specific handler.
+            print(f"Error: {type(e)} {e}; missing handler?")
+            log_write(seg, f"Error: {type(e)} {e}")
+            return None # gives up this segment
 
 def extract_python(response: str) -> str:
     # This regex accepts a truncated code block... this seems fine since we'll try it anyway
@@ -461,35 +521,13 @@ async def improve_coverage(seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
     global args, progress
 
-    def pl(item, singular, plural = None):
-        if len(item) <= 1:
-            return singular
-        return plural if plural is not None else f"{singular}s"
-
-    module_name = get_module_name(seg.filename, args.source_dir)
-
-    messages = [{"role": "user",
-                 "content": f"""
-You are an expert Python test-driven developer.
-The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
-when tested, {seg.lines_branches_missing_do()} not execute.
-Create a new pytest test function that executes these missing lines/branches, always making
-sure that the new test is correct and indeed improves coverage.
-Always send entire Python test scripts when proposing a new test or correcting one you
-previously proposed.
-Be sure to include assertions in the test that verify any applicable postconditions.
-Please also make VERY SURE to clean up after the test, so as not to affect other tests;
-use 'pytest-mock' if appropriate.
-Write as little top-level code as possible, and in particular do not include any top-level code
-calling into pytest.main or the test itself.
-Respond ONLY with the Python code enclosed in backticks, without any explanation.
-```python
-{seg.get_excerpt()}
-```
-"""
-            }]
-
-    log_write(seg, messages[0]['content'])  # initial prompt
+    def log_prompts(prompts: T.List[dict]):
+        for p in prompts:
+            log_write(seg, p['content'])
+    
+    prompter = prompt.prompters[args.prompt_family](args=args, segment=seg)
+    messages = prompter.initial_prompt()
+    log_prompts(messages)
 
     attempts = 0
 
@@ -502,8 +540,14 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
             log_write(seg, "Too many attempts, giving up")
             break
 
-        if not (response := await do_chat(seg, {'model': args.model, 'messages': messages,
-                                                'temperature': args.model_temperature})):
+        completion = {'model': args.model,
+                      'messages': messages,
+                      'temperature': args.model_temperature}
+        
+        if "ollama" in args.model:
+            completion["api_base"] = "http://localhost:11434"
+            
+        if not (response := await do_chat(seg, completion)):
             log_write(seg, "giving up")
             break
 
@@ -528,6 +572,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         try:
             result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+                                                 branch_coverage=args.branch_coverage,
                                                  log_write=lambda msg: log_write(seg, msg))
 
         except subprocess.TimeoutExpired:
@@ -538,18 +583,14 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         except subprocess.CalledProcessError as e:
             state.inc_counter('F')
-            messages.append({
-                "role": "user",
-                "content": "Executing the test yields an error, shown below.\n" +\
-                           "Modify the test to correct it; respond only with the complete Python code in backticks.\n\n" +\
-                           clean_error(str(e.stdout, 'UTF-8', errors='ignore'))
-            })
-            log_write(seg, messages[-1]['content'])
+            prompts = prompter.error_prompt(clean_error(str(e.stdout, 'UTF-8', errors='ignore')))
+            messages.extend(prompts)
+            log_prompts(prompts)
             continue
 
         new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
         new_branches = set(tuple(b) for b in result[seg.filename]['executed_branches']) \
-                       if seg.filename in result else set()
+                       if (seg.filename in result and 'executed_branches' in result[seg.filename]) else set()
         now_missing_lines = seg.missing_lines - new_lines
         now_missing_branches = seg.missing_branches - new_branches
 
@@ -562,15 +603,10 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
         # XXX insist on len(now_missing_lines)+len(now_missing_branches) == 0 ?
         if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
-            messages.append({
-                "role": "user",
-                "content": f"""
-This test still lacks coverage: {lines_branches_do(now_missing_lines, set(), now_missing_branches)} not execute.
-Modify it to correct that; respond only with the complete Python code in backticks.
-"""
-            })
-            log_write(seg, messages[-1]['content'])
             state.inc_counter('U')
+            prompts = prompter.missing_coverage_prompt(now_missing_lines, now_missing_branches)
+            messages.extend(prompts)
+            log_prompts(prompts)
             continue
 
         # the test is good 'nough...
@@ -595,7 +631,6 @@ def add_to_pythonpath(source_dir: Path):
 
 
 def main():
-
     from collections import defaultdict
     import os
 
@@ -607,154 +642,174 @@ def main():
         return 1
 
     # add source dir to paths so that the module doesn't need to be installed to be worked on
-    add_to_pythonpath(args.source_dir)
+    if args.add_to_pythonpath:
+        add_to_pythonpath(args.source_dir)
 
-    if args.only_disable_interfering_tests:
-        disable_interfering_tests()
-        return
-
-    if args.rate_limit or token_rate_limit_for_model(args.model):
-        limit = (args.rate_limit, 60) if args.rate_limit else token_rate_limit_for_model(args.model)
-        from aiolimiter import AsyncLimiter
-        token_rate_limit = AsyncLimiter(*limit)
-        # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
+    if args.prompt_for_tests:
+        if args.rate_limit or token_rate_limit_for_model(args.model):
+            limit = (args.rate_limit, 60) if args.rate_limit else token_rate_limit_for_model(args.model)
+            from aiolimiter import AsyncLimiter
+            token_rate_limit = AsyncLimiter(*limit)
+            # TODO also add request limit, and use 'await asyncio.gather(t.acquire(tokens), r.acquire())' to acquire both
 
 
-    # Check for an API key for OpenAI or Amazon Bedrock.
-    if 'OPENAI_API_KEY' not in os.environ:
-        if not all(x in os.environ for x in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION_NAME']):
-            print("You need a key (or keys) from an AI service to use CoverUp.")
-            print()
-            print("OpenAI:")
-            print("  You can get a key here: https://platform.openai.com/api-keys")
-            print("  Set the environment variable OPENAI_API_KEY to your key value:")
-            print("    export OPENAI_API_KEY=<your key>")
-            print()
-            print()
-            print("Bedrock:")
-            print("  To use Bedrock, you need an AWS account.")
-            print("  Set the following environment variables:")
-            print("    export AWS_ACCESS_KEY_ID=<your key id>")
-            print("    export AWS_SECRET_ACCESS_KEY=<your secret key>")
-            print("    export AWS_REGION_NAME=us-west-2")
-            print("  You also need to request access to Claude:")
-            print(
-                "   https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
-            )
-            print()
+        # Check for an API key for OpenAI or Amazon Bedrock.
+        if 'OPENAI_API_KEY' not in os.environ and 'ANTHROPIC_API_KEY' not in os.environ:
+            if not all(x in os.environ for x in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION_NAME']):
+                print("You need a key (or keys) from an AI service to use CoverUp.")
+                print()
+                print("OpenAI:")
+                print("  You can get a key here: https://platform.openai.com/api-keys")
+                print("  Set the environment variable OPENAI_API_KEY to your key value:")
+                print("    export OPENAI_API_KEY=<your key>")
+                print()
+                print()
+                print("Anthropic:")
+                print("  Set the environment variable ANTHROPIC_API_KEY to your key value:")
+                print("    export ANTHROPIC_API_KEY=<your key>")
+                print()
+                print()
+                print("Bedrock:")
+                print("  To use Bedrock, you need an AWS account.")
+                print("  Set the following environment variables:")
+                print("    export AWS_ACCESS_KEY_ID=<your key id>")
+                print("    export AWS_SECRET_ACCESS_KEY=<your secret key>")
+                print("    export AWS_REGION_NAME=us-west-2")
+                print("  You also need to request access to Claude:")
+                print(
+                    "   https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
+                )
+                print()
+                return 1
+
+        if not args.model:
+            print("Please specify model to use with --model")
             return 1
 
-    if 'OPENAI_API_KEY' in os.environ:
-        if not args.model:
-            # args.model = "openai/gpt-4"
-            args.model = "openai/gpt-4-1106-preview"
-        # openai.key=os.environ['OPENAI_API_KEY']
-        #if 'OPENAI_ORGANIZATION' in os.environ:
-        #    openai.organization=os.environ['OPENAI_ORGANIZATION']
-    else:
-        # args.model = "bedrock/anthropic.claude-v2:1"
-        if not args.model:
-            args.model = "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
-    log_write('startup', f"Command: {' '.join(sys.argv)}")
+        log_write('startup', f"Command: {' '.join(sys.argv)}")
 
-    # --- (1) load or measure initial coverage, figure out segmentation ---
+        # --- (1) load or measure initial coverage, figure out segmentation ---
 
-    if args.checkpoint and (state := State.load_checkpoint(args.checkpoint)):
-        print("Continuing from checkpoint;  ", end='')
-    else:
+        if args.checkpoint and (state := State.load_checkpoint(args.checkpoint)):
+            print("Continuing from checkpoint;  coverage: ", end='', flush=True)
+            coverage = state.get_initial_coverage()
+        else:
+            if args.disable_polluting or args.disable_failing:
+                # check and clean up suite before measuring coverage
+                check_whole_suite()
+
+            try:
+                print("Measuring coverage...  ", end='', flush=True)
+                coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
+                                                  pytest_args=args.pytest_args,
+                                                  isolate_tests=args.isolate_tests,
+                                                  branch_coverage=args.branch_coverage,
+                                                  trace=(print if args.debug else None))
+                state = State(coverage)
+
+            except subprocess.CalledProcessError as e:
+                print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8', errors='ignore'))
+                return 1
+
+        print(f"{coverage['summary']['percent_covered']:.1f}%")
+        # TODO also show running coverage estimate
+
+        segments = sorted(get_missing_coverage(state.get_initial_coverage(), line_limit=args.line_limit),
+                          key=lambda seg: seg.missing_count(), reverse=True)
+
+        # save initial coverage so we don't have to redo it next time
+        if args.checkpoint:
+            state.save_checkpoint(args.checkpoint)
+
+        # --- (2) prompt for tests ---
+
+        print(f"Prompting {args.model} for tests to increase coverage...")
+        print("(in the following, G=good, F=failed, U=useless and R=retry)")
+
+        async def work_segment(seg: CodeSegment) -> None:
+            if await improve_coverage(seg):
+                # Only mark done if was able to complete (True return),
+                # so that it can be retried after installing any missing modules
+                state.mark_done(seg)
+
+            if args.checkpoint:
+                state.save_checkpoint(args.checkpoint)
+            progress.signal_one_completed()
+
+        worklist = []
+        seg_done_count = 0
+        for seg in segments:
+            if not seg.path.is_relative_to(args.source_dir):
+                continue
+
+            if args.source_files and seg.path not in args.source_files:
+                continue
+
+            if state.is_done(seg):
+                seg_done_count += 1
+            else:
+                worklist.append(work_segment(seg))
+
+        progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count)
+        state.set_progress_bar(progress)
+
+        async def run_it():
+            if args.max_concurrency:
+                semaphore = asyncio.Semaphore(args.max_concurrency)
+
+                async def sem_coro(coro):
+                    async with semaphore:
+                        return await coro
+
+                await asyncio.gather(*(sem_coro(c) for c in worklist))
+            else:
+                await asyncio.gather(*worklist)
+
         try:
-            coverage = disable_interfering_tests()
+            asyncio.run(run_it())
+        except KeyboardInterrupt:
+            print("Interrupted.")
+            if args.checkpoint:
+                state.save_checkpoint(args.checkpoint)
+            return 1
+
+        progress.close()
+
+    # --- (3) clean up resulting test suite ---
+
+    if args.disable_polluting or args.disable_failing:
+        check_whole_suite()
+
+    # --- (4) show final coverage
+
+    if args.prompt_for_tests:
+        try:
+            print("Measuring coverage...  ", end='', flush=True)
+            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
+                                              pytest_args=args.pytest_args,
+                                              isolate_tests=args.isolate_tests,
+                                              branch_coverage=args.branch_coverage,
+                                              trace=(print if args.debug else None))
 
         except subprocess.CalledProcessError as e:
             print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8', errors='ignore'))
             return 1
 
-        state = State(coverage)
+        print(f"{coverage['summary']['percent_covered']:.1f}%")
 
-    coverage = state.get_initial_coverage()
-
-    print(f"Initial coverage: {coverage['summary']['percent_covered']:.1f}%")
-    # TODO also show running coverage estimate
-
-    segments = sorted(get_missing_coverage(state.get_initial_coverage(), line_limit=args.line_limit),
-                      key=lambda seg: seg.missing_count(), reverse=True)
-
-    # save initial coverage so we don't have to redo it next time
-    if args.checkpoint:
-        state.save_checkpoint(args.checkpoint)
-
-    # --- (2) prompt for tests ---
-
-    print(f"Prompting {args.model} for tests to increase coverage...")
-    print("(in the following, G=good, F=failed, U=useless and R=retry)")
-
-    async def work_segment(seg: CodeSegment) -> None:
-        if await improve_coverage(seg):
-            # Only mark done if was able to complete (True return),
-            # so that it can be retried after installing any missing modules
-            state.mark_done(seg)
+    # --- (5) save state and show missing modules, if appropriate
 
         if args.checkpoint:
+            state.set_final_coverage(coverage)
             state.save_checkpoint(args.checkpoint)
-        progress.signal_one_completed()
 
-    worklist = []
-    seg_done_count = 0
-    for seg in segments:
-        if not args.source_dir in Path(seg.filename).parents:
-            continue
-
-        if args.source_files and all(seg.filename not in str(s) for s in args.source_files):
-            continue
-
-        if state.is_done(seg):
-            seg_done_count += 1
-        else:
-            worklist.append(work_segment(seg))
-
-    progress = Progress(total=len(worklist)+seg_done_count, initial=seg_done_count)
-    state.set_progress_bar(progress)
-
-    async def run_it():
-        if args.max_concurrency:
-            semaphore = asyncio.Semaphore(args.max_concurrency)
-
-            async def sem_coro(coro):
-                async with semaphore:
-                    return await coro
-
-            await asyncio.gather(*(sem_coro(c) for c in worklist))
-        else:
-            await asyncio.gather(*worklist)
-
-    try:
-        asyncio.run(run_it())
-    except KeyboardInterrupt:
-        print("Interrupted.")
-        if args.checkpoint:
-            state.save_checkpoint(args.checkpoint)
-        return 1
-
-    progress.close()
-
-    # --- (3) check resulting test suite ---
-
-    coverage = disable_interfering_tests()
-    print(f"End coverage: {coverage['summary']['percent_covered']:.1f}%")
-
-    if args.checkpoint:
-        state.set_final_coverage(coverage)
-        state.save_checkpoint(args.checkpoint)
-
-    # --- (4) final remarks ---
-
-    if required := get_required_modules():
-        # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
-        # FIXME move this to 'state'
-        print(f"Some modules seem missing:  {', '.join(str(m) for m in required)}")
-        if args.write_requirements_to:
-            with args.write_requirements_to.open("a") as f:
-                for module in required:
-                    f.write(f"{module}\n")
+        if required := get_required_modules():
+            # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
+            # FIXME move this to 'state'
+            print(f"Some modules seem missing:  {', '.join(str(m) for m in required)}")
+            if args.write_requirements_to:
+                with args.write_requirements_to.open("a") as f:
+                    for module in required:
+                        f.write(f"{module}\n")
 
     return 0

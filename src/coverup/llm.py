@@ -1,5 +1,5 @@
 import typing as T
-import llm_utils
+import litellm
 
 
 # Tier 5 rate limits for models; tuples indicate limit and interval in seconds
@@ -45,32 +45,40 @@ MODEL_RATE_LIMITS = {
 
 
 def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int]:
+    if model_name.startswith('openai/'):
+        model_name = model_name[7:]
+
     if (model_limits := MODEL_RATE_LIMITS.get(model_name)):
         return model_limits.get('token')
 
     return None
 
 
-def compute_cost(usage: dict, model: str) -> float:
+def compute_cost(usage: dict, model_name: str) -> float:
     from math import ceil
 
-    if 'prompt_tokens' in usage and 'completion_tokens' in usage:
-        try:
-            return llm_utils.calculate_cost(usage['prompt_tokens'], usage['completion_tokens'], model)
+    if model_name.startswith('openai/'):
+        model_name = model_name[7:]
 
-        except ValueError:
-            pass # unknown model
+    if 'prompt_tokens' in usage and 'completion_tokens' in usage:
+        if (cost := litellm.model_cost.get(model_name)):
+            return usage['prompt_tokens'] * cost['input_cost_per_token'] +\
+                   usage['completion_tokens'] * cost['output_cost_per_token']
 
     return None
 
 
 _token_encoding_cache = dict()
-def count_tokens(model: str, completion: dict):
+def count_tokens(model_name: str, completion: dict):
     """Counts the number of tokens in a chat completion request."""
     import tiktoken
 
-    if not (encoding := _token_encoding_cache.get(model)):
-        encoding = _token_encoding_cache[model] = tiktoken.encoding_for_model(model)
+    if not (encoding := _token_encoding_cache.get(model_name)):
+        model = model_name
+        if model_name.startswith('openai/'):
+            model = model_name[7:]
+
+        encoding = _token_encoding_cache[model_name] = tiktoken.encoding_for_model(model)
 
     count = 0
     for m in completion['messages']:

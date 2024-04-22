@@ -29,7 +29,7 @@ def _compact(test_set):
             yield str(a) if a == b else f"{a}-{b}"
             a = n
 
-    return ", ".join(list(get_ranges()) + sorted(names))
+    return "{" + ", ".join(list(get_ranges()) + sorted(names)) + "}"
 
 
 class DeltaDebugger(abc.ABC):
@@ -54,10 +54,12 @@ class DeltaDebugger(abc.ABC):
         change_list = sorted(changes)
 
         c1 = set(change_list[:len_changes//2])
+        if self.trace: self.trace(f"checking {_compact(change_list[:len_changes//2])}")
         if self.test(c1.union(rest), **kwargs):
             return self.debug(c1, rest, **kwargs)    # in 1st half
 
         c2 = set(change_list[len_changes//2:])
+        if self.trace: self.trace(f"checking {_compact(change_list[len_changes//2:])}")
         if self.test(c2.union(rest), **kwargs):
             return self.debug(c2, rest, **kwargs)    # in 2nd half
 

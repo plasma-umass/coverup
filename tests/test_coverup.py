@@ -83,10 +83,11 @@ E   ImportError: cannot import name 'JSONProvider' from 'flask.json' (/Users/jua
 
 
 def test_find_imports():
-    assert ['abc', 'bar', 'baz', 'cba', 'foo', 'xy'] == sorted(coverup.find_imports("""\
+    assert ['abc', 'bar', 'baz', 'cba', 'foo'] == sorted(coverup.find_imports("""\
 import foo, bar.baz
 from baz.zab import a, b, c
-from ..xy import yz
+from ..xy import yz         # relative, package likely present
+from . import blah          # relative, package likely present
 
 def foo_func():
     import abc
@@ -101,12 +102,6 @@ def test_missing_imports():
     assert not coverup.missing_imports([])
     assert coverup.missing_imports(['sys', 'idontexist'])
 
-
-def test_get_module_name():
-    assert 'flask.json.provider' == coverup.get_module_name(Path('src/flask/json/provider.py'), Path('src/flask'))
-    assert 'flask.json.provider' == coverup.get_module_name('src/flask/json/provider.py', 'src/flask')
-    assert 'flask.tool' == coverup.get_module_name('src/flask/tool.py', './tests/../src/flask')
-    assert None == coverup.get_module_name('src/flask/tool.py', './tests')
 
 def test_extract_python():
     assert "foo()\n\nbar()\n" == coverup.extract_python("""\
