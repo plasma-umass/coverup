@@ -21,30 +21,33 @@ To generate tests, it first measures your suite's coverage using [SlipCover](htt
 It then selects portions of the code that need more testing (that is, code that is uncovered).
 CoverUp then engages in a conversation with an [LLM](https://en.wikipedia.org/wiki/Large_language_model),
 prompting for tests, checking the results to verify that they run and increase coverage (again using SlipCover), and re-prompting for adjustments as necessary.
-Finally, CoverUp checks that the new tests integrate well, attempting to resolve any issues it finds.
+Finally, CoverUp optionally checks that the new tests integrate well, attempting to resolve any issues it finds.
 
 For technical details and a complete evaluation, see our arXiv paper, [_CoverUp: Coverage-Guided LLM-Based Test Generation_](https://arxiv.org/abs/2403.16218) ([PDF](https://github.com/plasma-umass/CoverUp/blob/main/CoverUp-arxiv-2403.16218.pdf)).
 
 ## Installing CoverUp
-
 CoverUp is available from PyPI, so you can install simply with
 ```shell
 $ python3 -m pip install coverup
 ```
 
-Currently, CoverUp requires an [OpenAI account](https://platform.openai.com/signup) to run (we plan to support local models in the near future).
-Your account will also need to have a [positive balance](https://platform.openai.com/account/usage).
-Create an [API key](https://platform.openai.com/api-keys) and store its "secret key" (usually a
+### LLM model access
+CoverUp can be used with OpenAI, Anthropic or AWS Bedrock models; it requires that the
+access details be defined as shell environment variables: `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY` or `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION_NAME`, respectively.
+
+For example, for OpenAI you would create an [account](https://platform.openai.com/signup), ensure
+it has a [positive balance](https://platform.openai.com/account/usage) and then create an
+an [API key](https://platform.openai.com/api-keys), storing its "secret key" (usually a
 string starting with `sk-`) in an environment variable named `OPENAI_API_KEY`:
 ```shell
 $ export OPENAI_API_KEY=<...your-api-key...>
 ```
 
 ## Using CoverUp
-
-If your module's source code is in `src` and your tests in `tests`, you can run CoverUp as
+If your module is named `mymod`, its sources are under `src` and the tests under `tests`, you can run CoverUp as
 ```shell
-$ coverup --source-dir src --tests-dir tests
+$ coverup --source-dir src/mymod --tests-dir tests
 ```
 CoverUp then creates tests named `test_coverup_N.py`, where `N` is a number, under the `tests` directory.
 
@@ -52,7 +55,7 @@ CoverUp then creates tests named `test_coverup_N.py`, where `N` is a number, und
 
 Here we have CoverUp create additional tests for the popular package [Flask](https://flask.palletsprojects.com/):
 ```
-$ coverup --source-dir src/flask --tests-dir tests
+$ coverup --source-dir src/flask --tests-dir tests --disable-polluting --no-isolate-tests
 Measuring test suite coverage...  starting coverage: 90.2%
 Prompting gpt-4-1106-preview for tests to increase coverage...
 100%|███████████████████████████████████████████████████| 95/95 [02:49<00:00,  1.79s/it, usage=~$3.30, G=51, F=141, U=22, R=0]
