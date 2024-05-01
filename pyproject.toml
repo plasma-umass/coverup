@@ -29,7 +29,11 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["setuptools>61", "wheel"]
+requires = [
+    "setuptools>61",
+    "wheel",
+    "tomli; python_version < '3.11'" # tomllib alternative
+]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]

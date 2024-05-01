@@ -5,7 +5,7 @@ import re
 try:
     import tomllib
 except ImportError:
-    from pip._vendor import tomli as tomllib
+    import tomli as tomllib
 
 def get_version():
     return tomllib.loads(Path("pyproject.toml").read_text())['project']['version']
