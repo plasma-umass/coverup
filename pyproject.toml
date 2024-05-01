@@ -1,7 +1,7 @@
 [project]
 name = "CoverUp"
 description = "LLM-powered test coverage improver"
-readme = "README.md"
+dynamic = ["readme"]
 version = "0.1.2"
 authors = [
     { name="Juan Altmayer Pizzorno", email="juan@altmayer.com" },
@@ -27,8 +27,13 @@ dependencies = [
     "litellm>=1.33.1"
 ]
 
+[build-system]
+requires = ["setuptools>61", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project.scripts]
 coverup = "coverup.coverup:main"
 
 [project.urls]
-"Homepage" = "https://github.com/plasma-umass/CoverUp"
+"Homepage" = "https://github.com/plasma-umass/coverup"
+"Repository" = "https://github.com/plasma-umass/coverup"
