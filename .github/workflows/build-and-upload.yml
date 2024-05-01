@@ -24,8 +24,8 @@ jobs:
 
       - name: build it
         run: |
-          python3 -m pip install build wheel twine virtualenv
-          python3 -m build --wheel
+          python3 -m pip install build twine
+          python3 -m build
 
       - name: Non-release (dev) upload
         if: github.event_name != 'release'
