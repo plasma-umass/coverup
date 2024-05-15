@@ -23,7 +23,7 @@ dependencies = [
     "aiolimiter",
     "tqdm",
     "slipcover>=1.0.13",
-    "pytest-forked",
+    "pytest-cleanslate",
     "litellm>=1.33.1"
 ]
 

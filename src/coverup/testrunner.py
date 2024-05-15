@@ -47,13 +47,13 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='',
             command = [sys.executable,
                        '-m', 'slipcover', '--source', source_dir] + (['--branch'] if branch_coverage else []) + \
                             ['--json', '--out', j.name] + \
-                            (['--isolate-tests'] if isolate_tests else []) + \
-                      ['-m', 'pytest'] + pytest_args.split() + ['--disable-warnings', '-x', tests_dir]
+                      ['-m', 'pytest'] + pytest_args.split() + (['--cleanslate'] if isolate_tests else []) + \
+                            ['--disable-warnings', '-x', tests_dir]
 
             if trace: trace(command)
             p = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             if p.returncode not in (pytest.ExitCode.OK, pytest.ExitCode.NO_TESTS_COLLECTED):
-                if trace: trace(f"tests rc={p.returncode}")
+                if trace: trace(f"tests rc={p.returncode}\n" + str(p.stdout, 'utf-8'))
                 p.check_returncode()
 
             try:
