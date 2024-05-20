@@ -8,7 +8,9 @@ except ImportError:
     import tomli as tomllib
 
 def get_version():
-    return tomllib.loads(Path("pyproject.toml").read_text())['project']['version']
+    import re
+    v = re.findall(r"^__version__ *= *\"([^\"]+)\"", Path("src/coverup/version.py").read_text())[0]
+    return v
 
 def get_url():
     return tomllib.loads(Path("pyproject.toml").read_text())['project']['urls']['Repository']
@@ -26,6 +28,7 @@ def long_description():
 
 if __name__ == "__main__":
     setuptools.setup(
+        version=get_version(),
         long_description=long_description(),
         long_description_content_type="text/markdown",
     )

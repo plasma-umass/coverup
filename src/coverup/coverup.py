@@ -20,6 +20,7 @@ from datetime import datetime
 from .llm import *
 from .segment import *
 from .testrunner import *
+from .version import __version__
 from . import prompt
 
 
@@ -143,6 +144,9 @@ def parse_args(args=None):
 
     ap.add_argument('--max-concurrency', type=positive_int, default=50,
                     help='maximum number of parallel requests; 0 means unlimited')
+
+    ap.add_argument('--version', action='version',
+                    version=f"%(prog)s v{__version__} (Python {'.'.join(map(str, sys.version_info[:3]))})")
 
     args = ap.parse_args(args)
 

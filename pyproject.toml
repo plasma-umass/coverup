@@ -1,8 +1,7 @@
 [project]
 name = "CoverUp"
 description = "LLM-powered test coverage improver"
-dynamic = ["readme"]
-version = "0.2.0"
+dynamic = ["readme", "version"]
 authors = [
     { name="Juan Altmayer Pizzorno", email="juan@altmayer.com" },
     { name="Emery Berger", email="emery.berger@gmail.com" }
