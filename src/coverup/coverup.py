@@ -810,7 +810,7 @@ def main():
         if required := get_required_modules():
             # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
             # FIXME move this to 'state'
-            print(f"Some modules seem missing:  {', '.join(str(m) for m in required)}")
+            print(f"Some modules seem to be missing:  {', '.join(str(m) for m in required)}")
             if args.write_requirements_to:
                 with args.write_requirements_to.open("a") as f:
                     for module in required:
