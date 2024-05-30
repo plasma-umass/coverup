@@ -55,11 +55,12 @@ class Gpt4PrompterV1(Prompter):
         args = self.args
         seg = self.segment
         module_name = get_module_name(seg.path, args.source_dir)
+        filename = seg.path.relative_to(args.source_dir.parent)
 
         return [
             _message(f"""
 You are an expert Python test-driven developer.
-The code below, extracted from {seg.filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
+The code below, extracted from {filename},{' module ' + module_name + ',' if module_name else ''} does not achieve full coverage:
 when tested, {seg.lines_branches_missing_do()} not execute.
 Create a new pytest test function that executes these missing lines/branches, always making
 sure that the new test is correct and indeed improves coverage.
@@ -156,12 +157,13 @@ class ClaudePrompter(Prompter):
         args = self.args
         seg = self.segment
         module_name = get_module_name(seg.path, args.source_dir)
+        filename = seg.path.relative_to(args.source_dir.parent)
 
         return [
             _message("You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage.",
                     role="system"),
             _message(f"""
-<file path="{seg.filename}" module_name="{module_name}">
+<file path="{filename}" module_name="{module_name}">
 {seg.get_excerpt()}
 </file>
 
