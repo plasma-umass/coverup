@@ -88,6 +88,7 @@ import foo, bar.baz
 from baz.zab import a, b, c
 from ..xy import yz         # relative, package likely present
 from . import blah          # relative, package likely present
+import __main__
 
 def foo_func():
     import abc

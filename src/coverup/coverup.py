@@ -285,7 +285,7 @@ def find_imports(python_code: str) -> T.List[str]:
             if n.module and n.level == 0:
                 modules.append(n.module.split('.')[0])
 
-    return modules
+    return [m for m in modules if m != '__main__']
 
 
 module_available = dict()
