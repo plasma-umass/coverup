@@ -52,7 +52,6 @@ $ coverup --source-dir src/mymod --tests-dir tests
 CoverUp then creates tests named `test_coverup_N.py`, where `N` is a number, under the `tests` directory.
 
 ### Example
-
 Here we have CoverUp create additional tests for the popular package [Flask](https://flask.palletsprojects.com/):
 ```
 $ coverup --source-dir src/flask --tests-dir tests --disable-polluting --no-isolate-tests
@@ -69,6 +68,19 @@ It detected that one of the new tests, `test_coverup_19`, was causing another te
 to fail and disabled it.
 That test remains as `disabled_test_coverup_19.py`, where it can be reviewed for the cause
 and possibly re-added to the suite.
+
+### Avoiding flaky tests
+While evaluating each newly generated test, CoverUp executes it a number of times in an
+attempt to detect any flaky tests; that can be adjusted with the `--repeat-tests` and
+`--no-repeat-tests` options.
+If CoverUp detects that a newly generated test is flaky, it prompts the LLM for a correction.
+
+### Test pollution and isolation
+CoverUp only adds tests to the suite that, when run by themselves, pass and increase coverage.
+However, it is possible for one test to "pollute" the state, causing other tests to fail.
+By default, CoverUp uses the [pytest-cleanslate](https://github.com/plasma-umass/pytest-cleanslate)
+plugin to isolate tests, working around any (in-memory) test pollution; that can be disabled by
+passing in the `--no-isolate-tests` option.
 
 ### Running CoverUp with Docker
 
