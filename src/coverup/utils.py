@@ -75,3 +75,26 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
         raise subprocess.CalledProcessError(process.returncode, args, output=output)
 
     return subprocess.CompletedProcess(args=args, returncode=process.returncode, stdout=output)
+
+
+def summary_coverage(cov: dict, sources: T.List[Path]) -> str:
+    """Returns the summary coverage, limiting it to the source files if any are given."""
+
+    if sources:
+        import copy
+        from slipcover.slipcover import add_summaries
+
+        filtered = {
+            'meta': cov['meta'],
+            'files': {}
+        }
+
+        for f in cov['files']:
+            resolved = Path(f).resolve()
+            if resolved in sources:
+                filtered['files'][str(resolved)] = copy.deepcopy(cov['files'][f])
+
+        add_summaries(filtered)
+        cov = filtered
+
+    return f"{cov['summary']['percent_covered']:.1f}%"

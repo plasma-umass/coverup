@@ -21,6 +21,7 @@ from .llm import *
 from .segment import *
 from .testrunner import *
 from .version import __version__
+from .utils import summary_coverage
 from . import prompt
 
 
@@ -722,7 +723,7 @@ def main():
                 print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8', errors='ignore'))
                 return 1
 
-        print(f"{coverage['summary']['percent_covered']:.1f}%")
+        print(summary_coverage(coverage, args.source_files))
         # TODO also show running coverage estimate
 
         segments = sorted(get_missing_coverage(state.get_initial_coverage(), line_limit=args.line_limit),
@@ -806,7 +807,7 @@ def main():
             print("Error measuring coverage:\n" + str(e.stdout, 'UTF-8', errors='ignore'))
             return 1
 
-        print(f"{coverage['summary']['percent_covered']:.1f}%")
+        print(summary_coverage(coverage, args.source_files))
 
     # --- (5) save state and show missing modules, if appropriate
 
