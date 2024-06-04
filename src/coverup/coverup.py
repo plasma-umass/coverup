@@ -46,8 +46,10 @@ def parse_args(args=None):
     ap.add_argument('--tests-dir', type=Path_dir, required=True,
                     help='directory where tests reside')
 
-    ap.add_argument('--source-dir', '--source', type=Path_dir, required=True,
-                    help='directory where sources reside')
+    g = ap.add_mutually_exclusive_group(required=True)
+    g.add_argument('--module-dir', type=Path_dir,
+                    help='directory where module sources reside (e.g., src/flask)')
+    g.add_argument('--source-dir', type=Path_dir, dest='module_dir', help=argparse.SUPPRESS)
 
     ap.add_argument('--checkpoint', type=Path, 
                     help=f'path to save progress to (and to resume it from)')
@@ -632,9 +634,9 @@ async def improve_coverage(seg: CodeSegment) -> bool:
     return True # finished
 
 
-def add_to_pythonpath(source_dir: Path):
+def add_to_pythonpath(module_dir: Path):
     import os
-    parent = str(source_dir.parent)
+    parent = str(module_dir.parent)
     os.environ['PYTHONPATH'] = parent + (f":{os.environ['PYTHONPATH']}" if 'PYTHONPATH' in os.environ else "")
     sys.path.insert(0, parent)
 
@@ -652,7 +654,7 @@ def main():
 
     # add source dir to paths so that the module doesn't need to be installed to be worked on
     if args.add_to_pythonpath:
-        add_to_pythonpath(args.source_dir)
+        add_to_pythonpath(args.module_dir)
 
     if args.prompt_for_tests:
         if args.rate_limit or token_rate_limit_for_model(args.model):
@@ -709,7 +711,7 @@ def main():
 
             try:
                 print("Measuring coverage...  ", end='', flush=True)
-                coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
+                coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.module_dir,
                                                   pytest_args=args.pytest_args,
                                                   isolate_tests=args.isolate_tests,
                                                   branch_coverage=args.branch_coverage,
@@ -748,7 +750,7 @@ def main():
         worklist = []
         seg_done_count = 0
         for seg in segments:
-            if not seg.path.is_relative_to(args.source_dir):
+            if not seg.path.is_relative_to(args.module_dir):
                 continue
 
             if args.source_files and seg.path not in args.source_files:
@@ -794,7 +796,7 @@ def main():
     if args.prompt_for_tests:
         try:
             print("Measuring coverage...  ", end='', flush=True)
-            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.source_dir,
+            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.module_dir,
                                               pytest_args=args.pytest_args,
                                               isolate_tests=args.isolate_tests,
                                               branch_coverage=args.branch_coverage,

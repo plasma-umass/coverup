@@ -54,8 +54,8 @@ class Gpt4PrompterV1(Prompter):
     def initial_prompt(self) -> T.List[dict]:
         args = self.args
         seg = self.segment
-        module_name = get_module_name(seg.path, args.source_dir)
-        filename = seg.path.relative_to(args.source_dir.parent)
+        module_name = get_module_name(seg.path, args.module_dir)
+        filename = seg.path.relative_to(args.module_dir.parent)
 
         return [
             _message(f"""
@@ -105,8 +105,8 @@ class Gpt4Prompter(Prompter):
     def initial_prompt(self) -> T.List[dict]:
         args = self.args
         seg = self.segment
-        module_name = get_module_name(seg.path, args.source_dir)
-        filename = seg.path.relative_to(args.source_dir.parent)
+        module_name = get_module_name(seg.path, args.module_dir)
+        filename = seg.path.relative_to(args.module_dir.parent)
 
         return [
             _message(f"""
@@ -156,8 +156,8 @@ class ClaudePrompter(Prompter):
     def initial_prompt(self) -> T.List[str]:
         args = self.args
         seg = self.segment
-        module_name = get_module_name(seg.path, args.source_dir)
-        filename = seg.path.relative_to(args.source_dir.parent)
+        module_name = get_module_name(seg.path, args.module_dir)
+        filename = seg.path.relative_to(args.module_dir.parent)
 
         return [
             _message("You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage.",
