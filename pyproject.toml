@@ -23,6 +23,7 @@ dependencies = [
     "tqdm",
     "slipcover>=1.0.13",
     "pytest-cleanslate",
+    "pytest-repeat",
     "litellm>=1.33.1"
 ]
 

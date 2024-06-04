@@ -20,9 +20,9 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
         with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
             try:
                 # -qq to cut down on tokens
-                p = await subprocess_run([sys.executable, '-m', 'slipcover'] + (['--branch'] if branch_coverage else []) + \
-                                         ['--json', '--out', j.name,
-                                          '-m', 'pytest'] + pytest_args.split() + ['-qq', '-x', '--disable-warnings', t.name],
+                p = await subprocess_run([sys.executable, '-m', 'slipcover',  *(('--branch',) if branch_coverage else ()),
+                                          '--json', '--out', j.name,
+                                          '-m', 'pytest', *pytest_args.split(), '-qq', '-x', '--disable-warnings', t.name],
                                          check=True, timeout=60)
                 if log_write:
                     log_write(str(p.stdout, 'UTF-8', errors='ignore'))
@@ -45,10 +45,10 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='',
     with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
         try:
             command = [sys.executable,
-                       '-m', 'slipcover', '--source', source_dir] + (['--branch'] if branch_coverage else []) + \
-                            ['--json', '--out', j.name] + \
-                      ['-m', 'pytest'] + pytest_args.split() + (['--cleanslate'] if isolate_tests else []) + \
-                            ['--disable-warnings', '-x', tests_dir]
+                       '-m', 'slipcover', '--source', source_dir, *(('--branch',) if branch_coverage else ()),
+                             '--json', '--out', j.name,
+                       '-m', 'pytest', *pytest_args.split(), *(('--cleanslate',) if isolate_tests else ()),
+                             '--disable-warnings', '-x', tests_dir]
 
             if trace: trace(command)
             p = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)

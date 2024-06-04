@@ -109,6 +109,10 @@ def parse_args(args=None):
     ap.add_argument('--write-requirements-to', type=Path,
                     help='append the name of any missing modules to the given file')
 
+    ap.add_argument('--repeat-tests', type=int, default=5,
+                    help='number of times to repeat test execution to help detect flaky tests')
+    ap.add_argument('--no-repeat-tests', action='store_const', const=0, dest='repeat_tests', help=argparse.SUPPRESS)
+
     ap.add_argument('--disable-polluting', default=False,
                     action=argparse.BooleanOptionalAction,
                     help='look for tests causing others to fail and disable them')
@@ -216,7 +220,7 @@ def log_write(seg: CodeSegment, m: str) -> None:
 def check_whole_suite() -> None:
     """Check whole suite and disable any polluting/failing tests."""
 
-    pytest_args = args.pytest_args
+    pytest_args = (f"--count={args.repeat_tests} " if args.repeat_tests else "") + args.pytest_args
     if args.disable_polluting:
         pytest_args += " -x"  # stop at first (to save time)
 
@@ -575,7 +579,8 @@ async def improve_coverage(seg: CodeSegment) -> bool:
                 return False # not finished: needs a missing module
 
         try:
-            result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=args.pytest_args,
+            pytest_args = (f"--count={args.repeat_tests} " if args.repeat_tests else "") + args.pytest_args
+            result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=pytest_args,
                                                  branch_coverage=args.branch_coverage,
                                                  log_write=lambda msg: log_write(seg, msg))
 
