@@ -494,7 +494,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             # This message usually indicates out of money in account
             if 'You exceeded your current quota' in str(e):
                 log_write(seg, f"Failed: {type(e)} {e}")
-                raise e
+                raise
 
             log_write(seg, f"Error: {type(e)} {e}")
 
@@ -509,6 +509,10 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             log_write(seg, f"Error: {type(e)} {e}")
             return None # gives up this segment
 
+        except openai.AuthenticationError as e:
+            log_write(seg, f"Failed: {type(e)} {e}")
+            raise
+
         except openai.APIConnectionError as e:
             log_write(seg, f"Error: {type(e)} {e}")
             # usually a server-side error... just retry right away
@@ -520,6 +524,7 @@ async def do_chat(seg: CodeSegment, completion: dict) -> str:
             print(f"Error: {type(e)} {e}; missing handler?")
             log_write(seg, f"Error: {type(e)} {e}")
             return None # gives up this segment
+
 
 def extract_python(response: str) -> str:
     # This regex accepts a truncated code block... this seems fine since we'll try it anyway
