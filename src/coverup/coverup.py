@@ -222,20 +222,17 @@ def log_write(seg: CodeSegment, m: str) -> None:
 
 def check_whole_suite() -> None:
     """Check whole suite and disable any polluting/failing tests."""
+    import pytest_cleanslate.reduce as reduce
 
-    pytest_args = (f"--count={args.repeat_tests} " if args.repeat_tests else "") + args.pytest_args
-    if args.disable_polluting:
-        pytest_args += " -x"  # stop at first (to save time)
+    pytest_args = (*(("--count", str(args.repeat_tests)) if args.repeat_tests else ()), *args.pytest_args.split())
 
     while True:
         print("Checking test suite...  ", end='', flush=True)
         try:
-            btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=pytest_args,
-                                 branch_coverage=args.branch_coverage,
-                                 trace=(print if args.debug else None))
-            outcomes = btf.run_tests()
-            failing_tests = list(p for p, o in outcomes.items() if o == 'failed')
-            if not failing_tests:
+            results = reduce.run_pytest(args.tests_dir,
+                                        pytest_args=(*pytest_args, *(('-x',) if args.disable_polluting else ())),
+                                        trace=args.debug)
+            if not results.get_first_failed():
                 print("tests ok!")
                 return
 
@@ -244,27 +241,24 @@ def check_whole_suite() -> None:
             sys.exit(1)
 
         if args.disable_failing:
-            print(f"{len(failing_tests)} test(s) failed, disabling...")
-            to_disable = failing_tests
+            failed = list(results.get_failed())
+            print(f"{len(failed)} test(s)/module(s) failed, disabling...")
+            to_disable = {Path(reduce.get_module(t)) for t in failed}
 
         else:
-            print(f"{failing_tests[0]} failed; Looking for culprit(s)...")
-
-            def print_noeol(message):
-                # ESC[K clears the rest of the line
-                print(message, end='...\033[K\r', flush=True)
-
             try:
-                btf = BadTestsFinder(tests_dir=args.tests_dir, pytest_args=args.pytest_args,
-                                     branch_coverage=args.branch_coverage,
-                                     trace=(print if args.debug else None),
-                                     progress=(print if args.debug else print_noeol))
+                reduction = reduce.reduce(tests_path=args.tests_dir, results=results,
+                                          pytest_args=pytest_args, trace=args.debug)
+            except subprocess.CalledProcessError as e:
+                print(str(e) + "\n" + str(e.stdout, 'UTF-8', errors='ignore'))
+                sys.exit(1)
 
-                to_disable = btf.find_culprit(failing_tests[0])
+            if 'error' in reduction:
+                sys.exit(1)
 
-            except BadTestFinderError as e:
-                print(e)
-                to_disable = {failing_tests[0]}
+            # FIXME add check for disabling too much
+            # FIXME could just disable individual tests rather than always entire modules
+            to_disable = {Path(reduce.get_module(m)) for m in (reduction['modules'] + reduction['tests'])}
 
         for t in to_disable:
             print(f"Disabling {t}")
