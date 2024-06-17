@@ -610,16 +610,18 @@ async def improve_coverage(seg: CodeSegment) -> bool:
                        if (seg.filename in result and 'executed_branches' in result[seg.filename]) else set()
         now_missing_lines = seg.missing_lines - new_lines
         now_missing_branches = seg.missing_branches - new_branches
+        gained_lines = seg.missing_lines - now_missing_lines
+        gained_branches = seg.missing_branches - now_missing_branches
 
         if args.show_details:
             print(seg.identify())
-            print(f"Originally missing: {list(seg.missing_lines)}")
-            print(f"                    {list(seg.missing_branches)}")
-            print(f"Still missing:      {list(now_missing_lines)}")
-            print(f"                    {list(now_missing_branches)}")
+            print(f"Originally missing: {sorted(seg.missing_lines)}")
+            print(f"                    {list(format_branches(seg.missing_branches))}")
+            print(f"Gained:             {sorted(gained_lines)}")
+            print(f"                    {list(format_branches(gained_branches))}")
 
-        # XXX insist on len(now_missing_lines)+len(now_missing_branches) == 0 ?
-        if len(now_missing_lines)+len(now_missing_branches) == seg.missing_count():
+        # TODO insist on full coverage?
+        if len(gained_lines)+len(gained_branches) == 0:
             state.inc_counter('U')
             prompts = prompter.missing_coverage_prompt(now_missing_lines, now_missing_branches)
             messages.extend(prompts)
@@ -629,8 +631,8 @@ async def improve_coverage(seg: CodeSegment) -> bool:
         # the test is good 'nough...
         new_test = new_test_file()
         new_test.write_text(f"# file {seg.identify()}\n" +\
-                            f"# lines {sorted(seg.missing_lines)}\n" +\
-                            f"# branches {list(format_branches(seg.missing_branches))}\n\n" +\
+                            f"# asked {sorted(seg.missing_lines) + list(format_branches(seg.missing_branches))}\n" +\
+                            f"# gained {sorted(gained_lines) + list(format_branches(gained_branches))}\n\n" +\
                             last_test)
 
         log_write(seg, f"Saved as {new_test}\n")
