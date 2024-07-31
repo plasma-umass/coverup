@@ -34,7 +34,7 @@ class CodeSegment:
     def __str__(self) -> str:
         return self.identify()
 
-    def get_excerpt(self):
+    def get_excerpt(self, tag_lines=True):
         excerpt = []
         with open(self.filename, "r") as src:
             code = src.readlines()
@@ -43,24 +43,16 @@ class CodeSegment:
                 for i in range(b, e):
                     excerpt.extend([f"{'':10}  ", code[i-1]])
 
-            if not self.executed_lines:
-                for i in range(self.begin, self.end):
+            for i in range(self.begin, self.end):
+                if tag_lines and (i in self.lines_of_interest):
+                    excerpt.extend([f"{i:10}: ", code[i-1]])
+                else:
                     excerpt.extend([f"{'':10}  ", code[i-1]])
-
-            else:
-                for i in range(self.begin, self.end):
-                    if i in self.lines_of_interest:
-                        excerpt.extend([f"{i:10}: ", code[i-1]])
-                    else:
-                        excerpt.extend([f"{'':10}  ", code[i-1]])
 
         return ''.join(excerpt)
 
 
     def lines_branches_missing_do(self):
-        if not self.executed_lines:
-            return 'it does'
-
         return lines_branches_do(self.missing_lines, self.executed_lines, self.missing_branches)
 
 
