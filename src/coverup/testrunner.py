@@ -34,7 +34,7 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
                 except FileNotFoundError:
                     pass
 
-    return cov["files"]
+    return cov
 
 
 def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None, isolate_tests=False, branch_coverage=True):

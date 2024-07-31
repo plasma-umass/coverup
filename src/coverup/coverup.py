@@ -152,6 +152,9 @@ def parse_args(args=None):
     ap.add_argument('--max-concurrency', type=positive_int, default=50,
                     help='maximum number of parallel requests; 0 means unlimited')
 
+    ap.add_argument('--save-coverage-to', type=Path_dir,
+                    help='save each new test\'s coverage to given directory')
+
     ap.add_argument('--version', action='version',
                     version=f"%(prog)s v{__version__} (Python {'.'.join(map(str, sys.version_info[:3]))})")
 
@@ -582,7 +585,7 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
         try:
             pytest_args = (f"--count={args.repeat_tests} " if args.repeat_tests else "") + args.pytest_args
-            result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir,
+            coverage = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir,
                                                  pytest_args=pytest_args,
                                                  branch_coverage=args.branch_coverage,
                                                  log_write=lambda msg: log_write(seg, msg))
@@ -600,9 +603,11 @@ async def improve_coverage(seg: CodeSegment) -> bool:
             log_prompts(prompts)
             continue
 
-        new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
-        new_branches = set(tuple(b) for b in result[seg.filename]['executed_branches']) \
-                       if (seg.filename in result and 'executed_branches' in result[seg.filename]) else set()
+        result = coverage['files'].get(seg.filename, None)
+        new_lines = set(result['executed_lines']) if result else set()
+        new_branches = set(tuple(b) for b in result['executed_branches']) if (result and \
+                                                                              'executed_branches' in result) \
+                       else set()
         gained_lines = seg.missing_lines.intersection(new_lines)
         gained_branches = seg.missing_branches.intersection(new_branches)
 
@@ -632,7 +637,9 @@ async def improve_coverage(seg: CodeSegment) -> bool:
         log_write(seg, f"Saved as {new_test}\n")
         state.inc_counter('G')
 
-        # TODO save 'result' for later analysis
+        if args.save_coverage_to:
+            with (args.save_coverage_to / (new_test.stem + ".json")).open("w") as f:
+                json.dump(coverage, f)
 
         # TODO re-add segment with remaining missing coverage?
         break
