@@ -550,13 +550,13 @@ async def improve_coverage(seg: CodeSegment) -> bool:
             log_write(seg, "Too many attempts, giving up")
             break
 
-        completion = {'model': args.model,
-                      'messages': messages,
-                      'temperature': args.model_temperature}
+        completion = {
+            'model': args.model,
+            'temperature': args.model_temperature,
+            'messages': messages,
+            **({'api_base': "http://localhost:11434"} if "ollama" in args.model else {})
+        }
         
-        if "ollama" in args.model:
-            completion["api_base"] = "http://localhost:11434"
-            
         if not (response := await do_chat(seg, completion)):
             log_write(seg, "giving up")
             break
@@ -582,7 +582,8 @@ async def improve_coverage(seg: CodeSegment) -> bool:
 
         try:
             pytest_args = (f"--count={args.repeat_tests} " if args.repeat_tests else "") + args.pytest_args
-            result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir, pytest_args=pytest_args,
+            result = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir,
+                                                 pytest_args=pytest_args,
                                                  branch_coverage=args.branch_coverage,
                                                  log_write=lambda msg: log_write(seg, msg))
 
@@ -602,10 +603,8 @@ async def improve_coverage(seg: CodeSegment) -> bool:
         new_lines = set(result[seg.filename]['executed_lines']) if seg.filename in result else set()
         new_branches = set(tuple(b) for b in result[seg.filename]['executed_branches']) \
                        if (seg.filename in result and 'executed_branches' in result[seg.filename]) else set()
-        now_missing_lines = seg.missing_lines - new_lines
-        now_missing_branches = seg.missing_branches - new_branches
-        gained_lines = seg.missing_lines - now_missing_lines
-        gained_branches = seg.missing_branches - now_missing_branches
+        gained_lines = seg.missing_lines.intersection(new_lines)
+        gained_branches = seg.missing_branches.intersection(new_branches)
 
         if args.show_details:
             print(seg.identify())
@@ -614,23 +613,28 @@ async def improve_coverage(seg: CodeSegment) -> bool:
             print(f"Gained:             {sorted(gained_lines)}")
             print(f"                    {list(format_branches(gained_branches))}")
 
-        # TODO insist on full coverage?
-        if len(gained_lines)+len(gained_branches) == 0:
+        if not gained_lines and not gained_branches:
             state.inc_counter('U')
-            prompts = prompter.missing_coverage_prompt(now_missing_lines, now_missing_branches)
+            prompts = prompter.missing_coverage_prompt(seg.missing_lines, seg.missing_branches)
             messages.extend(prompts)
             log_prompts(prompts)
             continue
 
-        # the test is good 'nough...
+        asked = {'lines': sorted(seg.missing_lines), 'branches': sorted(seg.missing_branches)}
+        gained = {'lines': sorted(gained_lines), 'branches': sorted(gained_branches)}
+
         new_test = new_test_file()
-        new_test.write_text(f"# file {seg.identify()}\n" +\
-                            f"# asked {sorted(seg.missing_lines) + list(format_branches(seg.missing_branches))}\n" +\
-                            f"# gained {sorted(gained_lines) + list(format_branches(gained_branches))}\n\n" +\
+        new_test.write_text(f"# file: {seg.identify()}\n" +\
+                            f"# asked: {json.dumps(asked)}\n" +\
+                            f"# gained: {json.dumps(gained)}\n\n" +\
                             last_test)
 
         log_write(seg, f"Saved as {new_test}\n")
         state.inc_counter('G')
+
+        # TODO save 'result' for later analysis
+
+        # TODO re-add segment with remaining missing coverage?
         break
 
     return True # finished
