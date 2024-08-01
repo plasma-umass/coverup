@@ -461,7 +461,7 @@ def extract_python(response: str) -> str:
 
 state = None
 
-async def improve_coverage(chatter: llm.Chatter, seg: CodeSegment) -> bool:
+async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
     global args
 
@@ -469,8 +469,7 @@ async def improve_coverage(chatter: llm.Chatter, seg: CodeSegment) -> bool:
         for p in prompts:
             log_write(seg, p['content'])
     
-    prompter = prompt.prompters[args.prompt_family](args=args, segment=seg)
-    messages = prompter.initial_prompt()
+    messages = prompter.initial_prompt(seg)
     log_prompts(messages)
 
     attempts = 0
@@ -522,7 +521,7 @@ async def improve_coverage(chatter: llm.Chatter, seg: CodeSegment) -> bool:
 
         except subprocess.CalledProcessError as e:
             state.inc_counter('F')
-            prompts = prompter.error_prompt(clean_error(str(e.stdout, 'UTF-8', errors='ignore')))
+            prompts = prompter.error_prompt(seg, clean_error(str(e.stdout, 'UTF-8', errors='ignore')))
             messages.extend(prompts)
             log_prompts(prompts)
             continue
@@ -544,7 +543,7 @@ async def improve_coverage(chatter: llm.Chatter, seg: CodeSegment) -> bool:
 
         if not gained_lines and not gained_branches:
             state.inc_counter('U')
-            prompts = prompter.missing_coverage_prompt(seg.missing_lines, seg.missing_branches)
+            prompts = prompter.missing_coverage_prompt(seg, seg.missing_lines, seg.missing_branches)
             messages.extend(prompts)
             log_prompts(prompts)
             continue
@@ -670,8 +669,10 @@ def main():
         print(f"Prompting {args.model} for tests to increase coverage...")
         print("(in the following, G=good, F=failed, U=useless and R=retry)")
 
+        prompter = prompt.prompters[args.prompt_family](args=args)
+
         async def work_segment(seg: CodeSegment) -> None:
-            if await improve_coverage(chatter, seg):
+            if await improve_coverage(chatter, prompter, seg):
                 # Only mark done if was able to complete (True return),
                 # so that it can be retried after installing any missing modules
                 state.mark_done(seg)

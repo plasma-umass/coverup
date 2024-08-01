@@ -31,11 +31,11 @@ def test_gpt4_v1_relative_file_name(tmp_path, monkeypatch):
 
     monkeypatch.setattr(CodeSegment, "get_excerpt", lambda self, tag_lines=True: '<excerpt>')
 
-    p = prompt.Gpt4PrompterV1(args, segment)
-    txt = p.initial_prompt()
-    assert "extracted from ansible/context.py," in p.initial_prompt()[0]['content']
+    p = prompt.Gpt4PrompterV1(args)
+    initial = p.initial_prompt(segment)
+    assert "extracted from ansible/context.py," in initial[0]['content']
 
-    assert "when tested, it does not execute." in p.initial_prompt()[0]['content']
+    assert "when tested, it does not execute." in initial[0]['content']
 
 
 def test_claude_relative_file_name(tmp_path, monkeypatch):
@@ -58,8 +58,8 @@ def test_claude_relative_file_name(tmp_path, monkeypatch):
 
     monkeypatch.setattr(CodeSegment, "get_excerpt", lambda self, tag_lines=True: '<excerpt>')
 
-    p = prompt.ClaudePrompter(args, segment)
-    txt = p.initial_prompt()
-    assert '<file path="ansible/context.py"' in p.initial_prompt()[1]['content']
+    p = prompt.ClaudePrompter(args)
+    initial = p.initial_prompt(segment)
+    assert '<file path="ansible/context.py"' in initial[1]['content']
 
-    assert "when tested, it does not execute." in p.initial_prompt()[1]['content']
+    assert "when tested, it does not execute." in initial[1]['content']
