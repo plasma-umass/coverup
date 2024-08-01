@@ -3,6 +3,7 @@ import openai
 import logging
 import asyncio
 import warnings
+import textwrap
 from .segment import CodeSegment
 
 with warnings.catch_warnings():
@@ -13,6 +14,7 @@ with warnings.catch_warnings():
 
 # Turn off most logging
 litellm.set_verbose = False
+litellm.suppress_debug_info = True
 logging.getLogger().setLevel(logging.ERROR)
 
 # Ignore unavailable parameters
@@ -104,18 +106,64 @@ def count_tokens(model_name: str, completion: dict):
     return count
 
 
+class ChatterError(Exception):
+    pass
+
+
 class Chatter:
-    def __init__(self, model, model_temperature, log_write, signal_retry):
-        self.model = model
-        self.model_temperature = model_temperature
-        self.max_backoff = 64 # seconds
+    def __init__(self, model: str, model_temperature: float,
+                 log_write: T.Callable, signal_retry: T.Callable):
+        Chatter._validate_model(model)
+
+        self._model = model
+        self._model_temperature = model_temperature
+        self._max_backoff = 64 # seconds
         self.set_token_rate_limit(token_rate_limit_for_model(model))
 
-        self.log_write = log_write
-        self.signal_retry = signal_retry
+        self._log_write = log_write
+        self._signal_retry = signal_retry
+        self._functions = dict()
 
 
-    def set_token_rate_limit(self, limit):
+    @staticmethod
+    def _validate_model(model) -> None:
+        try:
+            _, provider, _, _ = litellm.get_llm_provider(model)
+        except litellm.exceptions.BadRequestError:
+            raise ChatterError(textwrap.dedent("""\
+                Unknown or unsupported model.
+                Please see https://docs.litellm.ai/docs/providers for supported models."""
+            ))
+
+        result = litellm.validate_environment(model)
+        if result['missing_keys']:
+            if provider == 'openai':
+                raise ChatterError(textwrap.dedent("""\
+                    You need an OpenAI key to use {model}.
+                    
+                    You can get a key here: https://platform.openai.com/api-keys
+                    Set the environment variable OPENAI_API_KEY to your key value
+                        export OPENAI_API_KEY=<your key>"""
+                ))
+            elif provider == 'bedrock':
+                raise ChatterError(textwrap.dedent("""\
+                    To use Bedrock, you need an AWS account. Set the following environment variables:
+                       export AWS_ACCESS_KEY_ID=<your key id>
+                       export AWS_SECRET_ACCESS_KEY=<your secret key>
+                       export AWS_REGION_NAME=us-west-2
+
+                    You also need to request access to Claude:
+                       https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"""
+                ))
+            else:
+                raise ChatterError(textwrap.dedent(f"""\
+                    You need a key (or keys) from {provider} to use {model}.
+                    Set the following environment variables:
+                        {', '.join(result['missing_keys'])}"""
+                ))
+
+
+    def set_token_rate_limit(self, limit: T.Union[T.Tuple[int, int], None]) -> None:
         if limit:
             from aiolimiter import AsyncLimiter
             self.token_rate_limit = AsyncLimiter(*limit)
@@ -123,33 +171,51 @@ class Chatter:
             self.token_rate_limit = None
 
 
-    def set_max_backoff(self, max_backoff):
-        self.max_backoff = max_backoff
+    def set_max_backoff(self, max_backoff: int) -> None:
+        self._max_backoff = max_backoff
 
 
-    def _completion(self, messages: list) -> dict:
+    def add_function(self, function: T.Callable) -> None:
+        """Makes a function availabe to the LLM."""
+        if not litellm.supports_function_calling(self._model):
+            raise ChatError(f"The {f._model} model does not support function calling.")
+
+        try:
+            schema = json.loads(function.__doc__)
+            if 'name' not in schema:
+                raise ChatterError("Name missing from function {function} schema.")
+        except json.decoder.JSONDecodeError as e:
+            raise ChatterError(f"Invalid JSON in function docstring: {e}")
+
+        assert schema['name'] not in self._functions, "Duplicated function name {schema['name']}"
+        self._functions[schema['name']] = {"function": function, "schema": schema}
+
+
+    def _completion(self, messages: T.List[dict]) -> dict:
         return {
-            'model': self.model,
-            'temperature': self.model_temperature,
+            'model': self._model,
+            'temperature': self._model_temperature,
             'messages': messages,
-            **({'api_base': "http://localhost:11434"} if "ollama" in self.model else {})
+            **({'api_base': "http://localhost:11434"} if "ollama" in self._model else {}),
+            **({'tools': [{'type': 'function', 'function': f['schema']} for f in self._functions.values()]} \
+                    if self._functions else {})
         }
 
 
     async def chat(self, seg: CodeSegment, messages: list) -> dict:
         """Sends a GPT chat request, handling common failures and returning the response."""
 
+        completion = self._completion(messages)
         sleep = 1
         while True:
             try:
-                completion = self._completion(messages)
                 # TODO also add request limit; could use 'await asyncio.gather(t.acquire(tokens), r.acquire())'
                 # to acquire both
                 if self.token_rate_limit:
                     try:
-                        await self.token_rate_limit.acquire(count_tokens(self.model, completion))
+                        await self.token_rate_limit.acquire(count_tokens(self._model, completion))
                     except ValueError as e:
-                        self.log_write(seg, f"Error: too many tokens for rate limit ({e})")
+                        self._log_write(seg, f"Error: too many tokens for rate limit ({e})")
                         return None # gives up this segment
 
                 return await litellm.acreate(**completion)
@@ -160,34 +226,34 @@ class Chatter:
 
                 # This message usually indicates out of money in account
                 if 'You exceeded your current quota' in str(e):
-                    self.log_write(seg, f"Failed: {type(e)} {e}")
+                    self._log_write(seg, f"Failed: {type(e)} {e}")
                     raise
 
-                self.log_write(seg, f"Error: {type(e)} {e}")
+                self._log_write(seg, f"Error: {type(e)} {e}")
 
                 import random
-                sleep = min(sleep*2, self.max_backoff)
+                sleep = min(sleep*2, self._max_backoff)
                 sleep_time = random.uniform(sleep/2, sleep)
-                self.signal_retry()
+                self._signal_retry()
                 await asyncio.sleep(sleep_time)
 
             except openai.BadRequestError as e:
                 # usually "maximum context length" XXX check for this?
-                self.log_write(seg, f"Error: {type(e)} {e}")
+                self._log_write(seg, f"Error: {type(e)} {e}")
                 return None # gives up this segment
 
             except openai.AuthenticationError as e:
-                self.log_write(seg, f"Failed: {type(e)} {e}")
+                self._log_write(seg, f"Failed: {type(e)} {e}")
                 raise
 
             except openai.APIConnectionError as e:
-                self.log_write(seg, f"Error: {type(e)} {e}")
+                self._log_write(seg, f"Error: {type(e)} {e}")
                 # usually a server-side error... just retry right away
-                self.signal_retry()
+                self._signal_retry()
 
             except openai.APIError as e:
                 # APIError is the base class for all API errors;
                 # we may be missing a more specific handler.
                 print(f"Error: {type(e)} {e}; missing handler?")
-                self.log_write(seg, f"Error: {type(e)} {e}")
+                self._log_write(seg, f"Error: {type(e)} {e}")
                 return None # gives up this segment

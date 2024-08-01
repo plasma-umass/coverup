@@ -37,6 +37,12 @@ class Prompter(abc.ABC):
         """Returns prompts(s) in response to the suggested test(s) lacking coverage."""
 
 
+    def get_functions(self) -> T.List[T.Callable]:
+        """Returns a list of functions to be made available to the LLM.
+           Each function's docstring must consist of its schema in JSON format."""
+        return []
+
+
 def _message(content: str, *, role="user") -> dict:
     return {
         'role': role,

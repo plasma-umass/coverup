@@ -153,6 +153,9 @@ def parse_args(args=None):
     if args.disable_failing and args.disable_polluting:
         ap.error('Specify only one of --disable-failing and --disable-polluting')
 
+    if not args.model:
+        ap.error('Specify the model to use with --model')
+
     return args
 
 
@@ -593,41 +596,21 @@ def main():
         add_to_pythonpath(args.module_dir)
 
     if args.prompt_for_tests:
-        chatter = llm.Chatter(model=args.model, model_temperature=args.model_temperature,
-                              log_write=log_write, signal_retry=lambda: state.inc_counter('R'))
-        chatter.set_max_backoff(args.max_backoff)
+        try:
+            chatter = llm.Chatter(model=args.model, model_temperature=args.model_temperature,
+                                  log_write=log_write, signal_retry=lambda: state.inc_counter('R'))
+            chatter.set_max_backoff(args.max_backoff)
 
-        if args.rate_limit:
-            chatter.set_token_rate_limit((args.rate_limit, 60))
+            if args.rate_limit:
+                chatter.set_token_rate_limit((args.rate_limit, 60))
 
-        # Check for an API key for OpenAI or Amazon Bedrock.
-        if 'OPENAI_API_KEY' not in os.environ and 'ANTHROPIC_API_KEY' not in os.environ:
-            if not all(x in os.environ for x in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION_NAME']):
-                print("You need a key (or keys) from an AI service to use CoverUp.")
-                print()
-                print("OpenAI:")
-                print("  You can get a key here: https://platform.openai.com/api-keys")
-                print("  Set the environment variable OPENAI_API_KEY to your key value:")
-                print("    export OPENAI_API_KEY=<your key>")
-                print()
-                print()
-                print("Anthropic:")
-                print("  Set the environment variable ANTHROPIC_API_KEY to your key value:")
-                print("    export ANTHROPIC_API_KEY=<your key>")
-                print()
-                print()
-                print("Bedrock:")
-                print("  To use Bedrock, you need an AWS account.")
-                print("  Set the following environment variables:")
-                print("    export AWS_ACCESS_KEY_ID=<your key id>")
-                print("    export AWS_SECRET_ACCESS_KEY=<your secret key>")
-                print("    export AWS_REGION_NAME=us-west-2")
-                print("  You also need to request access to Claude:")
-                print(
-                    "   https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html#manage-model-access"
-                )
-                print()
-                return 1
+            prompter = prompt.prompters[args.prompt_family](args=args)
+            for f in prompter.get_functions():
+                chatter.add_function(f)
+
+        except llm.ChatterError as e:
+            print(e)
+            return 1
 
         log_write('startup', f"Command: {' '.join(sys.argv)}")
 
@@ -668,8 +651,6 @@ def main():
 
         print(f"Prompting {args.model} for tests to increase coverage...")
         print("(in the following, G=good, F=failed, U=useless and R=retry)")
-
-        prompter = prompt.prompters[args.prompt_family](args=args)
 
         async def work_segment(seg: CodeSegment) -> None:
             if await improve_coverage(chatter, prompter, seg):
