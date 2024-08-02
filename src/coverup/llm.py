@@ -4,7 +4,7 @@ import logging
 import asyncio
 import warnings
 import textwrap
-from .segment import CodeSegment
+import json
 
 with warnings.catch_warnings():
     # ignore pydantic warnings https://github.com/BerriAI/litellm/issues/2832
@@ -111,17 +111,19 @@ class ChatterError(Exception):
 
 
 class Chatter:
-    def __init__(self, model: str, model_temperature: float,
-                 log_write: T.Callable, signal_retry: T.Callable):
+    """Chats with an LLM."""
+
+    def __init__(self, model: str) -> None:
         Chatter._validate_model(model)
 
         self._model = model
-        self._model_temperature = model_temperature
+        self._model_temperature = None
         self._max_backoff = 64 # seconds
         self.set_token_rate_limit(token_rate_limit_for_model(model))
-
-        self._log_write = log_write
-        self._signal_retry = signal_retry
+        self._add_cost = lambda cost: None
+        self._log_msg = lambda ctx, msg: None
+        self._log_json = lambda ctx, j: None
+        self._signal_retry = lambda: None
         self._functions = dict()
 
 
@@ -163,6 +165,10 @@ class Chatter:
                 ))
 
 
+    def set_model_temperature(self, temperature: T.Optional[float]) -> None:
+        self._model_temperature = temperature
+
+
     def set_token_rate_limit(self, limit: T.Union[T.Tuple[int, int], None]) -> None:
         if limit:
             from aiolimiter import AsyncLimiter
@@ -173,6 +179,26 @@ class Chatter:
 
     def set_max_backoff(self, max_backoff: int) -> None:
         self._max_backoff = max_backoff
+
+
+    def set_add_cost(self, add_cost: T.Callable) -> None:
+        """Sets up a callback to indicate additional costs."""
+        self._add_cost = add_cost
+
+
+    def set_log_msg(self, log_msg: T.Callable[[str, str], None]) -> None:
+        """Sets up a callback to write a message to the log."""
+        self._log_msg = log_msg
+
+
+    def set_log_json(self, log_json: T.Callable[[str, dict], None]) -> None:
+        """Sets up a callback to write a json exchange to the log."""
+        self._log_json = log_json
+
+
+    def set_signal_retry(self, signal_retry: T.Callable) -> None:
+        """Sets up a callback to indicate a retry."""
+        self._signal_retry = signal_retry
 
 
     def add_function(self, function: T.Callable) -> None:
@@ -191,10 +217,10 @@ class Chatter:
         self._functions[schema['name']] = {"function": function, "schema": schema}
 
 
-    def _completion(self, messages: T.List[dict]) -> dict:
+    def _request(self, messages: T.List[dict]) -> dict:
         return {
             'model': self._model,
-            'temperature': self._model_temperature,
+            **({'temperature': self._model_temperature} if self._model_temperature is not None else {}),
             'messages': messages,
             **({'api_base': "http://localhost:11434"} if "ollama" in self._model else {}),
             **({'tools': [{'type': 'function', 'function': f['schema']} for f in self._functions.values()]} \
@@ -202,10 +228,9 @@ class Chatter:
         }
 
 
-    async def chat(self, seg: CodeSegment, messages: list) -> dict:
-        """Sends a GPT chat request, handling common failures and returning the response."""
+    async def _send_request(self, request: dict, ctx: str) -> dict:
+        """Sends the LLM chat request, handling common failures and returning the response."""
 
-        completion = self._completion(messages)
         sleep = 1
         while True:
             try:
@@ -213,12 +238,12 @@ class Chatter:
                 # to acquire both
                 if self.token_rate_limit:
                     try:
-                        await self.token_rate_limit.acquire(count_tokens(self._model, completion))
+                        await self.token_rate_limit.acquire(count_tokens(self._model, request))
                     except ValueError as e:
-                        self._log_write(seg, f"Error: too many tokens for rate limit ({e})")
+                        self._log_msg(ctx, f"Error: too many tokens for rate limit ({e})")
                         return None # gives up this segment
 
-                return await litellm.acreate(**completion)
+                return await litellm.acreate(**request)
 
             except (litellm.exceptions.ServiceUnavailableError,
                     openai.RateLimitError,
@@ -226,10 +251,10 @@ class Chatter:
 
                 # This message usually indicates out of money in account
                 if 'You exceeded your current quota' in str(e):
-                    self._log_write(seg, f"Failed: {type(e)} {e}")
+                    self._log_msg(ctx, f"Failed: {type(e)} {e}")
                     raise
 
-                self._log_write(seg, f"Error: {type(e)} {e}")
+                self._log_msg(ctx, f"Error: {type(e)} {e}")
 
                 import random
                 sleep = min(sleep*2, self._max_backoff)
@@ -239,15 +264,15 @@ class Chatter:
 
             except openai.BadRequestError as e:
                 # usually "maximum context length" XXX check for this?
-                self._log_write(seg, f"Error: {type(e)} {e}")
+                self._log_msg(ctx, f"Error: {type(e)} {e}")
                 return None # gives up this segment
 
             except openai.AuthenticationError as e:
-                self._log_write(seg, f"Failed: {type(e)} {e}")
+                self._log_msg(ctx, f"Failed: {type(e)} {e}")
                 raise
 
             except openai.APIConnectionError as e:
-                self._log_write(seg, f"Error: {type(e)} {e}")
+                self._log_msg(ctx, f"Error: {type(e)} {e}")
                 # usually a server-side error... just retry right away
                 self._signal_retry()
 
@@ -255,5 +280,46 @@ class Chatter:
                 # APIError is the base class for all API errors;
                 # we may be missing a more specific handler.
                 print(f"Error: {type(e)} {e}; missing handler?")
-                self._log_write(seg, f"Error: {type(e)} {e}")
+                self._log_msg(ctx, f"Error: {type(e)} {e}")
                 return None # gives up this segment
+
+
+    def _call_function(self, tool_call: dict) -> str:
+        args = json.loads(tool_call.function.arguments)
+        function = self._functions[tool_call.function.name]
+
+        try:
+            return str(function['function'](**args))
+        except Exception as e:
+            return f'Error executing function: {e}'
+
+
+    async def chat(self, messages: list, *, ctx: T.Optional[str] = None) -> dict:
+        """Chats with the LLM, sending the given messages, handling common failures and returning the response.
+           Automatically calls any tool functions requested."""
+
+        # TODO add iteration limit?
+        while True:
+            request = self._request(messages)
+            self._log_json(ctx, request)
+
+            if not (response := await self._send_request(request, ctx=ctx)):
+                return None
+
+            self._log_json(ctx, response.json())
+            self._add_cost(litellm.completion_cost(response))
+
+            if response.choices[0].finish_reason != "tool_calls":
+                return response.json()
+
+            tool_message = response.choices[0].message.json()
+            tool_message["content"] = "" # it's typically set to null, which upsets count_tokens
+            messages.append(tool_message)
+
+            for call in response.choices[0].message.tool_calls:
+                messages.append({
+                    'tool_call_id': call.id,
+                    'role': 'tool',
+                    'name': call.function.name,
+                    'content': self._call_function(call)
+                })

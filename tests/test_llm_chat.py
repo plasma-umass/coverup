@@ -23,12 +23,9 @@ async def test_do_chat_authentication_error():
     messages = [{'role': 'assistant',
                  'content': 'test prompt'}]
 
-    log_write = lambda seg, message: print(message)
-    signal_retry = lambda: None
-
     with patch("litellm.acreate",
                 new=AsyncMock(side_effect=openai.AuthenticationError("Authentication failed", response=MockResponse(), body=''))):
-        chatter = llm.Chatter(model="gpt-4", model_temperature=0, log_write=log_write, signal_retry=signal_retry)
+        chatter = llm.Chatter(model="gpt-4")
 
         with pytest.raises(openai.AuthenticationError):
-            await chatter.chat(seg, messages)
+            await chatter.chat(messages)

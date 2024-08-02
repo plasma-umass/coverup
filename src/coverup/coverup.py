@@ -324,37 +324,32 @@ class Progress:
         import tqdm
         from collections import OrderedDict
 
-        self.bar = tqdm.tqdm(total=total, initial=initial)
+        self._bar = tqdm.tqdm(total=total, initial=initial)
 
-        self.postfix = OrderedDict()
+        self._postfix = OrderedDict()
         for p in ['usage', *PROGRESS_COUNTERS]:
-            self.postfix[p] = ''  # to establish order
+            self._postfix[p] = ''  # to establish order
 
-        self.bar.set_postfix(ordered_dict=self.postfix)
+        self._bar.set_postfix(ordered_dict=self._postfix)
 
-    def update_usage(self, usage: dict):
-        """Updates the usage display."""
-        if (cost := llm.compute_cost(usage, args.model)) is not None:
-            self.postfix['usage'] = f'~${cost:.02f}'
-        else:
-            self.postfix['usage'] = f'{usage["prompt_tokens"]}+{usage["completion_tokens"]}'
-
-        self.bar.set_postfix(ordered_dict=self.postfix)
+    def update_cost(self, cost: float):
+        self._postfix['cost'] = f'~${cost:.02f}'
+        self._bar.set_postfix(ordered_dict=self._postfix)
 
     def update_counters(self, counters: dict):
         """Updates the counters display."""
         for k in counters:
-            self.postfix[k] = counters[k]
+            self._postfix[k] = counters[k]
 
-        self.bar.set_postfix(ordered_dict=self.postfix)
+        self._bar.set_postfix(ordered_dict=self._postfix)
 
     def signal_one_completed(self):
         """Signals an item completed."""
-        self.bar.update()
+        self._bar.update()
 
     def close(self):
         """Closes the underlying tqdm bar."""
-        self.bar.close()
+        self._bar.close()
 
 
 class State:
@@ -362,57 +357,54 @@ class State:
         """Initializes the CoverUp state."""
         from collections import defaultdict
 
-        self.done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
-        self.coverage = initial_coverage
-        self.usage = {'prompt_tokens': 0, 'completion_tokens': 0}
-        self.counters = {k:0 for k in PROGRESS_COUNTERS}
-        self.final_coverage = None
-        self.bar = None
+        self._done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
+        self._coverage = initial_coverage
+        self._cost = 0
+        self._counters = {k:0 for k in PROGRESS_COUNTERS}
+        self._final_coverage = None
+        self._bar = None
 
 
     def get_initial_coverage(self) -> dict:
         """Returns the coverage initially measured."""
-        return self.coverage
+        return self._coverage
 
 
     def set_final_coverage(self, cov: dict) -> None:
         """Adds the final coverage obtained, so it can be saved in a checkpoint."""
-        self.final_coverage = cov
+        self._final_coverage = cov
 
 
     def set_progress_bar(self, bar: Progress):
         """Specifies a progress bar to update."""
-        self.bar = bar
+        self._bar = bar
         if bar is not None:
-            self.bar.update_usage(self.usage)
-            self.bar.update_counters(self.counters)
+            self._bar.update_cost(self._cost)
+            self._bar.update_counters(self._counters)
 
 
-    def add_usage(self, usage: dict):
-        """Signals more tokens were used."""
-        for k in self.usage:
-            self.usage[k] += usage[k]
-
-        if self.bar:
-            self.bar.update_usage(self.usage)
+    def add_cost(self, cost: float) -> None:
+        self._cost += cost
+        if self._bar:
+            self._bar.update_cost(self._cost)
 
 
     def inc_counter(self, key: str):
         """Increments a progress counter."""
-        self.counters[key] += 1
+        self._counters[key] += 1
 
-        if self.bar:
-            self.bar.update_counters(self.counters)
+        if self._bar:
+            self._bar.update_counters(self._counters)
 
 
     def mark_done(self, seg: CodeSegment):
         """Marks a segment done."""
-        self.done[seg.path].add((seg.begin, seg.end))
+        self._done[seg.path].add((seg.begin, seg.end))
 
 
     def is_done(self, seg: CodeSegment):
         """Returns whether a segment is done."""
-        return (seg.begin, seg.end) in self.done[seg.path]
+        return (seg.begin, seg.end) in self._done[seg.path]
 
 
     @staticmethod
@@ -421,16 +413,17 @@ class State:
         try:
             with ckpt_file.open("r") as f:
                 ckpt = json.load(f)
-                assert ckpt['version'] == 1
-                assert 'usage' in ckpt
+                if ckpt['version'] != 2: return None
+                assert 'done' in ckpt
+                assert 'cost' in ckpt
+                assert 'counters' in ckpt
                 assert 'coverage' in ckpt, "coverage information missing in checkpoint"
 
                 state = State(ckpt['coverage'])
+                state._cost = ckpt['cost']
+                state._counters = ckpt['counters']
                 for filename, done_list in ckpt['done'].items():
-                    state.done[Path(filename).resolve()] = set(tuple(d) for d in done_list)
-                state.add_usage(ckpt['usage'])
-                if 'counters' in ckpt:
-                    state.counters = ckpt['counters']
+                    state._done[Path(filename).resolve()] = set(tuple(d) for d in done_list)
                 return state
 
         except FileNotFoundError:
@@ -440,16 +433,14 @@ class State:
     def save_checkpoint(self, ckpt_file: Path):
         """Saves this state to a checkpoint file."""
         ckpt = {
-            'version': 1,
-            'done': {str(k):list(v) for k,v in self.done.items() if len(v)},  # cannot serialize 'Path' or 'set' as-is
-            'usage': self.usage,
-            'counters': self.counters,
-            'coverage': self.coverage
+            'version': 2,
+            'done': {str(k):list(v) for k,v in self._done.items() if len(v)}, # cannot serialize 'Path' or 'set' as-is
+            'cost': self._cost,
+            'counters': self._counters,
+            'coverage': self._coverage,
+            **({'final_coverage': self._final_coverage} if self._final_coverage else {})
             # FIXME save missing modules
         }
-
-        if self.final_coverage:
-            ckpt['final_coverage'] = self.final_coverage
 
         with ckpt_file.open("w") as f:
             json.dump(ckpt, f)
@@ -486,15 +477,12 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
             log_write(seg, "Too many attempts, giving up")
             break
 
-        if not (response := await chatter.chat(seg, messages)):
+        if not (response := await chatter.chat(messages, ctx=seg)):
             log_write(seg, "giving up")
             break
 
         response_message = response["choices"][0]["message"]
         log_write(seg, response_message['content'])
-
-        state.add_usage(response['usage'])
-        log_write(seg, f"total usage: {state.usage}")
 
         messages.append(response_message)
 
@@ -597,8 +585,11 @@ def main():
 
     if args.prompt_for_tests:
         try:
-            chatter = llm.Chatter(model=args.model, model_temperature=args.model_temperature,
-                                  log_write=log_write, signal_retry=lambda: state.inc_counter('R'))
+            chatter = llm.Chatter(model=args.model)
+            chatter.set_log_msg(log_write)
+            chatter.set_signal_retry(lambda: state.inc_counter('R'))
+
+            chatter.set_model_temperature(args.model_temperature)
             chatter.set_max_backoff(args.max_backoff)
 
             if args.rate_limit:
@@ -639,6 +630,8 @@ def main():
 
         print(summary_coverage(coverage, args.source_files))
         # TODO also show running coverage estimate
+
+        chatter.set_add_cost(state.add_cost)
 
         segments = sorted(get_missing_coverage(state.get_initial_coverage(), line_limit=args.line_limit),
                           key=lambda seg: seg.missing_count(), reverse=True)
