@@ -70,6 +70,7 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
     code_segs = []
 
     def find_first_line(node):
+        # skip back to include decorators, as they are really part of the definition
         return min([node.lineno] + [d.lineno for d in node.decorator_list])
 
     def find_enclosing(root, line):
@@ -78,11 +79,15 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
                 continue
 
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and hasattr(node, "lineno"):
-                # skip back to include decorators, as they are really part of the definition
                 begin = find_first_line(node)
                 if begin <= line <= node.end_lineno:
                     return (node, begin, node.end_lineno+1) # +1 for range() style
 
+    def line_is_docstring(line, node):
+        return node.body and line == node.body[0].lineno and \
+            isinstance(node.body[0], ast.Expr) and \
+            isinstance(node.body[0].value, ast.Constant) and \
+            isinstance(node.body[0].value.value, str)
 
     for fname, fcov in coverage['files'].items():
         with open(fname, "r") as src:
@@ -96,29 +101,46 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
 
         lines_of_interest = missing_lines.union(set(sum(missing_branches,[])))
         lines_of_interest.discard(0)  # may result from N->0 branches
+
+        lines_in_segments = set()
+
         for line in sorted(lines_of_interest):   # sorted() simplifies tests
+            if line in lines_in_segments:
+                # already in a segment
+                continue
+
             if element := find_enclosing(tree, line):
                 node, begin, end = element
-
                 context = []
 
-                while isinstance(node, ast.ClassDef) and end - begin > line_limit:
-                    if element := find_enclosing(node, line):
-                        context.append((begin, node.lineno+1)) # +1 for range() style
-                        node, begin, end = element
+                # if a class and above line limit, look for enclosing element
+                # that might allow us to obey the limit
+                while isinstance(node, ast.ClassDef) and end - begin > line_limit and \
+                      (element := find_enclosing(node, line)):
+                    context.append((begin, node.lineno+1)) # +1 for range() style
+                    node, begin, end = element
 
-                    else:
-                        end = begin + line_limit
-                        for child in ast.iter_child_nodes(node):
-                            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and \
-                               hasattr(child, "lineno"):
-                                end = min(end, find_first_line(child))
-                                break
+                if line == node.lineno or line_is_docstring(line, node):
+                    # 'class' and 'def' are processed at import time, not really interesting
+                    # TODO load modules to remove such (and any others) at coverage collection time?
+                    lines_of_interest.remove(line)
+                    continue
 
-                if line < end and (begin, end) not in line_ranges:
-                    # FIXME handle lines >= end (lines between functions, etc.) somehow
-                    #print(f"{fname} line {line} -> {node} {begin}..{end}")
-                    line_ranges[(begin, end)] = (node, context)
+                # if 'line' is about a statement within a class and all that follows it
+                # are function/class definitions, we can trim the segment, reducing its 'end'
+                if isinstance(node, ast.ClassDef) and end - begin > line_limit:
+                    if all(child.lineno <= line or \
+                           isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
+                           for child in ast.iter_child_nodes(node)):
+                        end = min(find_first_line(child) for child in ast.iter_child_nodes(node) \
+                                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and \
+                                       child.lineno > line)
+
+                assert line < end
+                assert (begin, end) not in line_ranges
+
+                line_ranges[(begin, end)] = (node, context)
+                lines_in_segments.update({*range(begin, end)})
 
         if line_ranges:
             for (begin, end), (node, context) in line_ranges.items():

@@ -128,10 +128,10 @@ def test_all_missing():
     with mockfs({"tests/somecode.py": somecode_py}):
         segs = get_missing_coverage(coverage, line_limit=3)
 
-#        print("\n".join(str(s) for s in segs))
+        print("\n".join(f"{s} {s.lines_of_interest=}" for s in segs))
 
         assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
-        assert ['SomeCode', '__init__', 'foo', 'bar', 'globalDef', 'globalDef2'] == [seg.name for seg in segs]
+        assert ['__init__', 'foo', 'bar', 'globalDef', 'globalDef2'] == [seg.name for seg in segs]
 
         for i in range(1, len(segs)):
             assert segs[i-1].end <= segs[i].begin     # no overlaps
@@ -166,7 +166,7 @@ class Foo:
     with mockfs({"code.py": code_py}):
         segs = get_missing_coverage(coverage, line_limit=4)
 
-        print("\n".join(str(s) for s in segs))
+        print("\n".join(f"{s} {s.lines_of_interest=}" for s in segs))
 
         assert ['Foo', 'foo'] == [seg.name for seg in segs]
         assert segs[0].begin == 1
@@ -289,7 +289,7 @@ class Foo:
     with mockfs({"code.py": code_py}):
         segs = get_missing_coverage(coverage, line_limit=4)
 
-        print("\n".join(str(s) for s in segs))
+        print("\n".join(f"{s} {s.lines_of_interest=}" for s in segs))
 
         for seg in segs:
             for l in seg.missing_lines:
@@ -300,3 +300,31 @@ class Foo:
         assert segs[0].context == [(1,2), (2,3)]
         assert segs[0].missing_lines == set()
         assert segs[0].missing_branches == {(5,7)}
+
+
+def test_class_long_init():
+    code_py = """\
+class SomeClass(object):
+
+    def __init__(self, module):
+        ...
+        ...
+        ...
+        ...
+        ...
+"""
+
+    code_cov = {
+        'files': {
+            'code.py': {
+                'executed_lines': [],
+                'missing_lines': [1, *range(3, 9)]
+            }
+        }
+    }
+
+    with mockfs({"code.py": code_py}):
+        segs = get_missing_coverage(code_cov, line_limit=5)
+
+    print("\n".join(f"{s} {s.lines_of_interest=}" for s in segs))
+    assert segs[0].begin == 3
