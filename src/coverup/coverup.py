@@ -156,6 +156,19 @@ def parse_args(args=None):
     if not args.model:
         ap.error('Specify the model to use with --model')
 
+    if not list(args.module_dir.glob("*.py")):
+        sources = sorted(args.module_dir.glob("**/*.py"), key=lambda p: len(p.parts))
+        suggestion = sources[0].parent if sources else None
+
+        try:
+            args.module_dir = args.module_dir.relative_to(Path.cwd())
+            suggestion = suggestion.relative_to(Path.cwd()) if suggestion else None
+        except ValueError:
+            pass
+
+        ap.error(f'No Python sources found in "{args.module_dir}"' +
+                 (f'; did you mean "{suggestion}"?' if suggestion else '.'))
+
     return args
 
 

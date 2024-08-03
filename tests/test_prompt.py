@@ -15,6 +15,7 @@ def test_gpt4_v1_relative_file_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     (tmp_path / "lib" / "ansible").mkdir(parents=True)
+    (tmp_path / "lib" / "ansible" / "__init__.py").touch()
     (tmp_path / "tests").mkdir(parents=True)
 
     from coverup.coverup import parse_args
@@ -42,6 +43,7 @@ def test_claude_relative_file_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     (tmp_path / "lib" / "ansible").mkdir(parents=True)
+    (tmp_path / "lib" / "ansible" / "__init__.py").touch()
     (tmp_path / "tests").mkdir(parents=True)
 
     from coverup.coverup import parse_args
