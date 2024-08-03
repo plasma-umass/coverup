@@ -18,7 +18,7 @@ def test_gpt4_v1_relative_file_name(tmp_path, monkeypatch):
     (tmp_path / "tests").mkdir(parents=True)
 
     from coverup.coverup import parse_args
-    args = parse_args(["--source", "lib/ansible", "--tests", "tests"])
+    args = parse_args(["--source", "lib/ansible", "--tests", "tests", "--model", "gpt-4o"])
 
     from coverup.segment import CodeSegment
     segment = CodeSegment(
@@ -45,7 +45,7 @@ def test_claude_relative_file_name(tmp_path, monkeypatch):
     (tmp_path / "tests").mkdir(parents=True)
 
     from coverup.coverup import parse_args
-    args = parse_args(["--source", "lib/ansible", "--tests", "tests"])
+    args = parse_args(["--source", "lib/ansible", "--tests", "tests", "--model", "anthropic/claude-3-sonnet-20240229"])
 
     from coverup.segment import CodeSegment
     segment = CodeSegment(

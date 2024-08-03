@@ -24,8 +24,9 @@ async def test_do_chat_authentication_error():
                  'content': 'test prompt'}]
 
     with patch("litellm.acreate",
-                new=AsyncMock(side_effect=openai.AuthenticationError("Authentication failed", response=MockResponse(), body=''))):
-        chatter = llm.Chatter(model="gpt-4")
+               new=AsyncMock(side_effect=openai.AuthenticationError("Authentication failed", response=MockResponse(), body=''))):
+        with patch.object(llm.Chatter, '_validate_model'):
+            chatter = llm.Chatter(model="gpt-4")
 
-        with pytest.raises(openai.AuthenticationError):
-            await chatter.chat(messages)
+            with pytest.raises(openai.AuthenticationError):
+                await chatter.chat(messages)

@@ -13,5 +13,5 @@ def test_parse_args_with_source_files(tmp_path):
     tests_dir.mkdir()
     source_dir = tmp_path / "source"
     source_dir.mkdir()
-    args = parse_args([str(source_file), '--tests-dir', str(tests_dir), '--source-dir', str(source_dir)])
+    args = parse_args([str(source_file), '--tests-dir', str(tests_dir), '--source-dir', str(source_dir), '--model', 'gpt-4'])
     assert args.source_files[0] == source_file.resolve()
