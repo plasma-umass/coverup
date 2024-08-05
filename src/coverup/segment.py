@@ -83,12 +83,6 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
                 if begin <= line <= node.end_lineno:
                     return (node, begin, node.end_lineno+1) # +1 for range() style
 
-    def line_is_docstring(line, node):
-        return node.body and line == node.body[0].lineno and \
-            isinstance(node.body[0], ast.Expr) and \
-            isinstance(node.body[0].value, ast.Constant) and \
-            isinstance(node.body[0].value.value, str)
-
     for fname, fcov in coverage['files'].items():
         with open(fname, "r") as src:
             tree = ast.parse(src.read(), fname)
@@ -102,6 +96,11 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
         lines_of_interest = missing_lines.union(set(sum(missing_branches,[])))
         lines_of_interest.discard(0)  # may result from N->0 branches
 
+        # TODO remove from missing lines with load-time statements?
+        #   - directly under ModuleDef, ClassDef
+        # note that docstring don't generate code, so can't be missing within functions
+        # But then: how to capture missing coverage if a module was never loaded?
+
         lines_in_segments = set()
 
         for line in sorted(lines_of_interest):   # sorted() simplifies tests
@@ -109,32 +108,22 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
                 # already in a segment
                 continue
 
+            # FIXME add segments for top-level elements (under ModuleDef)
             if element := find_enclosing(tree, line):
                 node, begin, end = element
                 context = []
 
-                # if a class and above line limit, look for enclosing element
+                # If a class is above the line limit, look for enclosing element
                 # that might allow us to obey the limit
                 while isinstance(node, ast.ClassDef) and end - begin > line_limit and \
                       (element := find_enclosing(node, line)):
                     context.append((begin, node.lineno+1)) # +1 for range() style
                     node, begin, end = element
 
-                if line == node.lineno or line_is_docstring(line, node):
-                    # 'class' and 'def' are processed at import time, not really interesting
-                    # TODO load modules to remove such (and any others) at coverage collection time?
-                    lines_of_interest.remove(line)
-                    continue
-
-                # if 'line' is about a statement within a class and all that follows it
-                # are function/class definitions, we can trim the segment, reducing its 'end'
+                # Don't create a segment for a class that's too large... if we did, we
+                # might create a segment for a class after creating segments for its contents.
                 if isinstance(node, ast.ClassDef) and end - begin > line_limit:
-                    if all(child.lineno <= line or \
-                           isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
-                           for child in ast.iter_child_nodes(node)):
-                        end = min(find_first_line(child) for child in ast.iter_child_nodes(node) \
-                                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and \
-                                       child.lineno > line)
+                    continue
 
                 assert line < end
                 assert (begin, end) not in line_ranges
