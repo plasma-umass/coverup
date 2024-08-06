@@ -19,7 +19,7 @@ def test_missing_count():
         missing_lines={1, 2, 3},
         executed_lines=set(range(4, 11)),
         missing_branches={(5, True), (6, False)},
-        context=None
+        context=[], imports=[]
     )
     assert segment.missing_count() == 5
 
@@ -34,7 +34,7 @@ def test_missing_count_zero():
         missing_lines=set(),
         executed_lines=set(range(1, 11)),
         missing_branches=set(),
-        context=None
+        context=[], imports=[]
     )
     assert segment.missing_count() == 0
 
@@ -49,7 +49,7 @@ def test_missing_count_only_lines():
         missing_lines={1, 2, 3},
         executed_lines=set(range(4, 11)),
         missing_branches=set(),
-        context=None
+        context=[], imports=[]
     )
     assert segment.missing_count() == 3
 
@@ -64,6 +64,6 @@ def test_missing_count_only_branches():
         missing_lines=set(),
         executed_lines=set(range(1, 11)),
         missing_branches={(5, True), (6, False)},
-        context=None
+        context=[], imports=[]
     )
     assert segment.missing_count() == 2

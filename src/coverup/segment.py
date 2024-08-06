@@ -1,6 +1,7 @@
 import typing as T
 from pathlib import Path
 from .utils import *
+import ast
 
 
 class CodeSegment:
@@ -11,7 +12,8 @@ class CodeSegment:
                  missing_lines: T.Set[int],
                  executed_lines: T.Set[int],
                  missing_branches: T.Set[T.Tuple[int, int]],
-                 context: T.List[T.Tuple[int, int]]):
+                 context: T.List[T.Tuple[int, int]],
+                 imports: T.List[str]):
         self.path = Path(filename).resolve()
         self.filename = filename
         self.name = name
@@ -22,11 +24,11 @@ class CodeSegment:
         self.executed_lines = executed_lines
         self.missing_branches = missing_branches
         self.context = context
+        self.imports = imports
 
     def __repr__(self):
         return f"CodeSegment(\"{self.filename}\", \"{self.name}\", {self.begin}, {self.end}, " + \
                f"{self.missing_lines}, {self.executed_lines}, {self.missing_branches}, {self.context})"
-
 
     def identify(self) -> str:
         return f"{self.filename}:{self.begin}-{self.end-1}"
@@ -38,6 +40,9 @@ class CodeSegment:
         excerpt = []
         with open(self.filename, "r") as src:
             code = src.readlines()
+
+            for imp in self.imports:
+                excerpt.extend([f"{'':10}  {imp}\n"])
 
             for b, e in self.context:
                 for i in range(b, e):
@@ -60,12 +65,46 @@ class CodeSegment:
         return len(self.missing_lines)+len(self.missing_branches)
 
 
+def get_global_imports(tree, node):
+    def get_names(node):
+        # TODO this ignores numerous ways in which a global import might not be visible,
+        # such as when local symbols are created, etc.  In such cases, showing the
+        # import in the excerpt is extraneous, but not incorrect.
+        for n in ast.walk(node):
+            if isinstance(n, ast.Name):
+                yield n.id
+
+    def get_imports(n):
+        # TODO imports inside Class defines name in the class' namespace; they are uncommon
+        # Imports within functions are included in the excerpt, so there's no need for us
+        # to find them.
+        if not isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.iter_child_nodes(n):
+                yield from get_imports(child)
+
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            names = set(alias.asname if alias.asname else alias.name for alias in n.names)
+            yield names, n
+
+    # Process imports reversed so that the 1st import to define a name wins in the set;
+    # it's the programmer's first choice (if within a `try`, for example)
+    imap = {name: imp for imp in reversed(list(get_imports(tree))) for name in imp[0]}
+    names = set(get_names(node))
+
+    imports = []
+    while names:
+        name = names.pop()
+        if imp := imap.get(name):
+            imports.append(ast.unparse(imp[1]))
+            names -= imp[0]
+
+    return imports
+
 
 def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]:
     """Processes a JSON SlipCover output and generates a list of Python code segments,
     such as functions or classes, which have less than 100% coverage.
     """
-    import ast
 
     code_segs = []
 
@@ -128,17 +167,20 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
                 assert line < end
                 assert (begin, end) not in line_ranges
 
-                line_ranges[(begin, end)] = (node, context)
+                line_ranges[(begin, end)] = (node, context, get_global_imports(tree, node))
                 lines_in_segments.update({*range(begin, end)})
 
         if line_ranges:
-            for (begin, end), (node, context) in line_ranges.items():
+            for (begin, end), (node, context, imports) in line_ranges.items():
                 line_range_set = {*range(begin, end)}
-                code_segs.append(CodeSegment(fname, node.name, begin, end,
-                                             lines_of_interest=lines_of_interest.intersection(line_range_set),
-                                             missing_lines=missing_lines.intersection(line_range_set),
-                                             executed_lines=executed_lines.intersection(line_range_set),
-                                             missing_branches={tuple(b) for b in missing_branches if b[0] in line_range_set},
-                                             context=context))
+                code_segs.append(CodeSegment(
+                    fname, node.name, begin, end,
+                    lines_of_interest=lines_of_interest.intersection(line_range_set),
+                    missing_lines=missing_lines.intersection(line_range_set),
+                    executed_lines=executed_lines.intersection(line_range_set),
+                    missing_branches={tuple(b) for b in missing_branches if b[0] in line_range_set},
+                    context=context,
+                    imports=imports)
+                )
 
     return code_segs

@@ -27,7 +27,7 @@ def test_gpt4_v1_relative_file_name(tmp_path, monkeypatch):
                     name="foo",
                     begin=10, end=20, 
                     lines_of_interest=set(), missing_lines=set(), executed_lines=set(), missing_branches=set(),
-                    context=[]
+                    context=[], imports=[]
     )
 
     monkeypatch.setattr(CodeSegment, "get_excerpt", lambda self, tag_lines=True: '<excerpt>')
@@ -55,7 +55,7 @@ def test_claude_relative_file_name(tmp_path, monkeypatch):
                     name="foo",
                     begin=10, end=20, 
                     lines_of_interest=set(), missing_lines=set(), executed_lines=set(), missing_branches=set(),
-                    context=[]
+                    context=[], imports=[]
     )
 
     monkeypatch.setattr(CodeSegment, "get_excerpt", lambda self, tag_lines=True: '<excerpt>')

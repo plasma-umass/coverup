@@ -17,7 +17,7 @@ def code_segment():
         missing_lines=set(), 
         executed_lines=set(), 
         missing_branches=set(), 
-        context={}
+        context=[], imports=[]
     )
 
 @pytest.fixture
