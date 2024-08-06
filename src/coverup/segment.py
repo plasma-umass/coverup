@@ -95,6 +95,7 @@ def get_global_imports(tree, node):
     while names:
         name = names.pop()
         if imp := imap.get(name):
+            # TODO limit 'import' to names actually needed
             imports.append(ast.unparse(imp[1]))
             names -= imp[0]
 
