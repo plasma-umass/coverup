@@ -11,6 +11,8 @@ import copy
 # class -> class definition, globals, __init__, ...
 # method -> "class X:"
 
+# TODO use 'ast' alternative that retains comments?
+
 def find_path(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
     """Looks for a class or function by name, prefixing it with the path of parent class objects, if any."""
     for c in ast.iter_child_nodes(node):
@@ -48,6 +50,7 @@ def summarize(path: T.List[ast.AST]) -> ast.AST:
         for c in ast.iter_child_nodes(path[-1]):
             if (isinstance(c, ast.ClassDef) or
                 (isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef)) and c.name != "__init__")):
+                # Leave "__init__" unmodified as it's likely to contain important member information
                 c.body = [ast.Expr(ast.Constant(value=ast.literal_eval("...")))]
 
     # now the path of Class objects
