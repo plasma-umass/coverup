@@ -35,9 +35,9 @@ def parse_args(args=None):
                     help='directory where tests reside')
 
     g = ap.add_mutually_exclusive_group(required=True)
-    g.add_argument('--module-dir', type=Path_dir,
-                    help='directory where module sources reside (e.g., src/flask)')
-    g.add_argument('--source-dir', type=Path_dir, dest='module_dir', help=argparse.SUPPRESS)
+    g.add_argument('--package-dir', type=Path_dir,
+                    help='directory with the package sources (e.g., src/flask)')
+    g.add_argument('--source-dir', type=Path_dir, dest='package_dir', help=argparse.SUPPRESS)
 
     ap.add_argument('--checkpoint', type=Path, 
                     help=f'path to save progress to (and to resume it from)')
@@ -46,7 +46,7 @@ def parse_args(args=None):
 
     def default_model():
         if 'OPENAI_API_KEY' in os.environ:
-            return "openai/gpt-4o-2024-05-13"
+            return "gpt-4o-2024-05-13"
         if 'ANTHROPIC_API_KEY' in os.environ:
             return "anthropic/claude-3-sonnet-20240229"
         if 'AWS_ACCESS_KEY_ID' in os.environ:
@@ -156,17 +156,17 @@ def parse_args(args=None):
     if not args.model:
         ap.error('Specify the model to use with --model')
 
-    if not list(args.module_dir.glob("*.py")):
-        sources = sorted(args.module_dir.glob("**/*.py"), key=lambda p: len(p.parts))
+    if not list(args.package_dir.glob("*.py")):
+        sources = sorted(args.package_dir.glob("**/*.py"), key=lambda p: len(p.parts))
         suggestion = sources[0].parent if sources else None
 
         try:
-            args.module_dir = args.module_dir.relative_to(Path.cwd())
+            args.package_dir = args.package_dir.relative_to(Path.cwd())
             suggestion = suggestion.relative_to(Path.cwd()) if suggestion else None
         except ValueError:
             pass
 
-        ap.error(f'No Python sources found in "{args.module_dir}"' +
+        ap.error(f'No Python sources found in "{args.package_dir}"' +
                  (f'; did you mean "{suggestion}"?' if suggestion else '.'))
 
     return args
@@ -574,9 +574,9 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
     return True # finished
 
 
-def add_to_pythonpath(module_dir: Path):
+def add_to_pythonpath(package_dir: Path):
     import os
-    parent = str(module_dir.parent)
+    parent = str(package_dir.parent)
     os.environ['PYTHONPATH'] = parent + (f":{os.environ['PYTHONPATH']}" if 'PYTHONPATH' in os.environ else "")
     sys.path.insert(0, parent)
 
@@ -594,12 +594,13 @@ def main():
 
     # add source dir to paths so that the module doesn't need to be installed to be worked on
     if args.add_to_pythonpath:
-        add_to_pythonpath(args.module_dir)
+        add_to_pythonpath(args.package_dir)
 
     if args.prompt_for_tests:
         try:
             chatter = llm.Chatter(model=args.model)
             chatter.set_log_msg(log_write)
+            chatter.set_log_json(lambda ctx, j: log_write(ctx, json.dumps(j, indent=2)))
             chatter.set_signal_retry(lambda: state.inc_counter('R'))
 
             chatter.set_model_temperature(args.model_temperature)
@@ -630,7 +631,7 @@ def main():
 
             try:
                 print("Measuring coverage...  ", end='', flush=True)
-                coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.module_dir,
+                coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.package_dir,
                                                   pytest_args=args.pytest_args,
                                                   isolate_tests=args.isolate_tests,
                                                   branch_coverage=args.branch_coverage,
@@ -671,7 +672,7 @@ def main():
         worklist = []
         seg_done_count = 0
         for seg in segments:
-            if not seg.path.is_relative_to(args.module_dir):
+            if not seg.path.is_relative_to(args.package_dir):
                 continue
 
             if args.source_files and seg.path not in args.source_files:
@@ -717,7 +718,7 @@ def main():
     if args.prompt_for_tests:
         try:
             print("Measuring coverage...  ", end='', flush=True)
-            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.module_dir,
+            coverage = measure_suite_coverage(tests_dir=args.tests_dir, source_dir=args.package_dir,
                                               pytest_args=args.pytest_args,
                                               isolate_tests=args.isolate_tests,
                                               branch_coverage=args.branch_coverage,

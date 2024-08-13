@@ -228,7 +228,7 @@ class Chatter:
         }
 
 
-    async def _send_request(self, request: dict, ctx: str) -> dict:
+    async def _send_request(self, request: dict, ctx: object) -> dict:
         """Sends the LLM chat request, handling common failures and returning the response."""
 
         sleep = 1
@@ -284,17 +284,17 @@ class Chatter:
                 return None # gives up this segment
 
 
-    def _call_function(self, tool_call: dict) -> str:
+    def _call_function(self, ctx: object, tool_call: dict) -> str:
         args = json.loads(tool_call.function.arguments)
         function = self._functions[tool_call.function.name]
 
         try:
-            return str(function['function'](**args))
+            return str(function['function'](ctx=ctx, **args))
         except Exception as e:
             return f'Error executing function: {e}'
 
 
-    async def chat(self, messages: list, *, ctx: T.Optional[str] = None) -> dict:
+    async def chat(self, messages: list, *, ctx: T.Optional[object] = None) -> dict:
         """Chats with the LLM, sending the given messages, handling common failures and returning the response.
            Automatically calls any tool functions requested."""
 
@@ -321,5 +321,5 @@ class Chatter:
                     'tool_call_id': call.id,
                     'role': 'tool',
                     'name': call.function.name,
-                    'content': self._call_function(call)
+                    'content': self._call_function(ctx, call)
                 })

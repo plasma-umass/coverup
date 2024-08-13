@@ -59,8 +59,8 @@ class Gpt4PrompterV1(Prompter):
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
         args = self.args
-        module_name = get_module_name(segment.path, args.module_dir)
-        filename = segment.path.relative_to(args.module_dir.parent)
+        module_name = get_module_name(segment.path, args.package_dir)
+        filename = segment.path.relative_to(args.package_dir.parent)
 
         return [
             _message(f"""
@@ -107,10 +107,11 @@ class Gpt4PrompterV2(Prompter):
     def __init__(self, *args, **kwargs):
         Prompter.__init__(self, *args, **kwargs)
 
+
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
         args = self.args
-        module_name = get_module_name(segment.path, args.module_dir)
-        filename = segment.path.relative_to(args.module_dir.parent)
+        module_name = get_module_name(segment.path, args.package_dir)
+        filename = segment.path.relative_to(args.package_dir.parent)
 
         return [
             _message(f"""
@@ -119,6 +120,7 @@ The code below, extracted from {filename}, does not achieve full coverage:
 when tested, {segment.lines_branches_missing_do()} not execute.
 Create new pytest test functions that execute all missing lines and branches, always making
 sure that each test is correct and indeed improves coverage.
+Use the get_info tool function as necessary.
 Always send entire Python test scripts when proposing a new test or correcting one you
 previously proposed.
 Be sure to include assertions in the test that verify any applicable postconditions.
@@ -133,6 +135,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 """)
         ]
 
+
     def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict]:
         return [_message(f"""\
 Executing the test yields an error, shown below.
@@ -140,6 +143,7 @@ Modify the test to correct it; respond only with the complete Python code in bac
 
 {error}""")
         ]
+
 
     def missing_coverage_prompt(self, segment: CodeSegment,
                                 missing_lines: set, missing_branches: set) -> T.List[dict]:
@@ -150,6 +154,41 @@ Modify it to correct that; respond only with the complete Python code in backtic
         ]
 
 
+    @staticmethod
+    def get_info(ctx: CodeSegment, name: str) -> str:
+        """
+        {
+            "name": "get_info",
+            "description": "Returns information about a function, class or method.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "class, function or method name, as in 'f' for function f or 'C.foo' for method foo in class C."
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+        """
+
+        from .codeinfo import get_info, parse_file
+
+        if info := get_info(parse_file(ctx.path), name):
+            return f"""\
+{name} maps to:
+```python
+{info}
+```
+"""
+        return "Unable to obtain information."
+
+
+    def get_functions(self) -> T.List[T.Callable]:
+        return [__class__.get_info]
+
+
 class Gpt4PrompterV2Ablated(Prompter):
     """Prompter for GPT-4 that does not use coverage information."""
 
@@ -158,8 +197,8 @@ class Gpt4PrompterV2Ablated(Prompter):
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
         args = self.args
-        module_name = get_module_name(segment.path, args.module_dir)
-        filename = segment.path.relative_to(args.module_dir.parent)
+        module_name = get_module_name(segment.path, args.package_dir)
+        filename = segment.path.relative_to(args.package_dir.parent)
 
         return [
             _message(f"""
@@ -197,6 +236,7 @@ Modify to correct that; respond only with the complete Python code in backticks.
 """)
         ]
 
+
 class ClaudePrompter(Prompter):
     """Prompter for Claude."""
 
@@ -206,8 +246,8 @@ class ClaudePrompter(Prompter):
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
         args = self.args
-        module_name = get_module_name(segment.path, args.module_dir)
-        filename = segment.path.relative_to(args.module_dir.parent)
+        module_name = get_module_name(segment.path, args.package_dir)
+        filename = segment.path.relative_to(args.package_dir.parent)
 
         return [
             _message("You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage.",
