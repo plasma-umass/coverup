@@ -7,12 +7,25 @@ import coverup.codeinfo as codeinfo
 
 
 @pytest.fixture
-def import_fixture(monkeypatch):
+def importlib_cleanup():
     import importlib
-    import tempfile
     import sys
 
     previously_loaded = {m for m in sys.modules}
+
+    yield
+
+    importlib.invalidate_caches()
+
+    # It's not enough to call 'invalidate_caches'... :/
+    for m in list(sys.modules):
+        if m not in previously_loaded:
+            del sys.modules[m]
+
+
+@pytest.fixture
+def import_fixture(importlib_cleanup, monkeypatch):
+    import tempfile
 
     # Avoid using the tmp_path fixture because it retains the directories
     # while other tests execute... if importlib then still has something
@@ -24,12 +37,42 @@ def import_fixture(monkeypatch):
         monkeypatch.syspath_prepend(tmp_path)
         yield tmp_path
 
-    importlib.invalidate_caches()
 
-    # It's not enough to call 'invalidate_caches'... :/
-    for m in list(sys.modules):
-        if m not in previously_loaded:
-            del sys.modules[m]
+def get_fqn(p):
+    fqn = codeinfo._get_fqn(p)
+    return '.'.join(fqn) if fqn else fqn
+
+
+def test_get_fqn(import_fixture):
+    tmp_path = import_fixture
+
+    (tmp_path / "foo").mkdir()
+
+    assert "foo" == get_fqn(tmp_path / "foo" / "__init__.py")
+    assert "foo.bar" == get_fqn(tmp_path / "foo" / "bar.py")
+    assert "foo.bar.baz" == get_fqn(tmp_path / "foo" / "bar" / "baz.py")
+
+    assert "foo" == get_fqn(Path("foo") / "__init__.py")
+    assert "foo.bar" == get_fqn(Path("foo") / "bar.py")
+    assert "foo.bar.baz" == get_fqn(Path("foo") / "bar" / "baz.py")
+
+
+def test_get_fqn_relative_syspath(importlib_cleanup, monkeypatch):
+    import tempfile
+
+    with tempfile.TemporaryDirectory(dir=Path('.')) as tmpdir:
+        tmp_path = Path(tmpdir)
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.syspath_prepend('.')
+
+        assert "foo" == get_fqn(tmp_path / "foo" / "__init__.py")
+        assert "foo.bar" == get_fqn(tmp_path / "foo" / "bar.py")
+        assert "foo.bar.baz" == get_fqn(tmp_path / "foo" / "bar" / "baz.py")
+
+        assert "foo" == get_fqn(Path("foo") / "__init__.py")
+        assert "foo.bar" == get_fqn(Path("foo") / "bar.py")
+        assert "foo.bar.baz" == get_fqn(Path("foo") / "bar" / "baz.py")
 
 
 def test_resolve_import(import_fixture):
@@ -133,6 +176,7 @@ def test_get_info_class():
     )
 
     tree = ast.parse(code)
+    tree.path = Path("foo.py")
 
     assert codeinfo.get_info(tree, 'C') == textwrap.dedent("""\
         class C:
@@ -229,7 +273,7 @@ def test_get_info_imported(import_fixture):
     ))
 
 
-    tree = codeinfo._parse_file(code)
+    tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'foo2') == textwrap.dedent('''\
         def foofoo():
@@ -274,9 +318,27 @@ def test_get_info_import_and_class_in_block(import_fixture):
         """
     ))
 
-    tree = codeinfo._parse_file(code)
+    tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
         class Foo:
+            pass'''
+    )
+
+
+def test_get_info_name_includes_module_fqn(import_fixture):
+    tmp_path = import_fixture
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class C:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(tmp_path / "foo" / "bar.py")
+
+    assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
+        class C:
             pass'''
     )

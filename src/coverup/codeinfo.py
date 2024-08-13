@@ -7,25 +7,43 @@ import importlib.util
 
 # TODO use 'ast' alternative that retains comments?
 
+def _get_fqn(file: Path) -> T.Optional[T.List[str]]:
+    """Returns a source file's Python Fully Qualified Name, as a list name parts."""
+    import sys
+
+    if not file.is_absolute():
+        file = file.resolve()
+
+    parents = list(file.parents)
+
+    for path in sys.path:
+        path = Path(path)
+        if not path.is_absolute():
+            path = path.resolve()
+
+        for p in parents:
+            if p == path:
+                relative = file.relative_to(p)
+                relative = relative.parent if relative.name == '__init__.py' else relative.parent / relative.stem
+                return relative.parts
+
+
 def _resolve_import(file: Path, imp: ast.Import | ast.ImportFrom) -> str:
     """Given a file containing an `import` and the `import` itself, determines
        what module to read for the import."""
 
     if isinstance(imp, ast.ImportFrom):
         if imp.level > 0:  # relative import
-            path = file
-            for _ in range(imp.level):
-                path = path.parent
+            if not (fqn := _get_fqn(file)):
+                return None
 
-            # FIXME this doesn't handle namespace packages; would it be better to
-            # go through sys.path, looking for the root from which 'file' was loaded?
-            # Beware of possible relative paths in sys.path, though.
-            for parent in path.parents:
-                if not (parent / "__init__.py").exists():
-                    break
+            if imp.level > len(fqn):
+                return None # would go beyond top-level package
 
-            path = path.relative_to(parent)
-            return f"{'.'.join(path.parts)}.{imp.module if imp.module else imp.names[0].name}"
+            if imp.level > 1:
+                fqn = fqn[:-(imp.level-1)]
+
+            return f"{'.'.join(fqn)}.{imp.module if imp.module else imp.names[0].name}"
 
         return imp.module # absolute from ... import 
 
@@ -101,7 +119,7 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
     return path[0]
 
 
-def _parse_file(file: Path) -> ast.AST:
+def parse_file(file: Path) -> ast.AST:
     """Reads a python source file, annotating it with its path/filename."""
     with file.open("r") as f:
         tree = ast.parse(f.read())
@@ -112,10 +130,18 @@ def _parse_file(file: Path) -> ast.AST:
     return tree
 
 
+def _common_prefix_len(a: T.List[str], b: T.List[str]) -> int:
+    return next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+
+
 def get_info(module: ast.Module, name: str) -> T.Optional[str]:
     """Returns summarized information on a class or function, following imports if necessary."""
 
     key = name.split('.')
+
+    if (len(key) > 1 and (module_fqn := _get_fqn(module.path)) and
+        (common_prefix := _common_prefix_len(module_fqn, key))):
+        key = key[common_prefix:]
 
     while (path := _find_name_path(module, key)) and isinstance(path[-1], (ast.Import, ast.ImportFrom)):
         if not (module_name := _resolve_import(module.path, path[-1])):
@@ -124,13 +150,12 @@ def get_info(module: ast.Module, name: str) -> T.Optional[str]:
         key = key[len(path)-1:]
 
         if isinstance(path[-1], ast.Import):
-            # "import a.b.c" imports a, a.b and a.b.c...
+            # "import a.b.c" actually imports a, a.b and a.b.c...
             segments = module_name.split('.')
-            len_equal_prefix = next((i for i, (x, y) in enumerate(zip(segments, key)) if x != y),
-                                    min(len(segments), len(key)))
+            common_prefix = _common_prefix_len(segments, key)
 
-            module_name = '.'.join(segments[:len_equal_prefix])
-            key = key[len_equal_prefix:]
+            module_name = '.'.join(segments[:common_prefix])
+            key = key[common_prefix:]
 
         else:
             # replace with name out of 'from S import N as A'
@@ -140,8 +165,10 @@ def get_info(module: ast.Module, name: str) -> T.Optional[str]:
             return None
 
         import_file = Path(spec.origin)
-        module = _parse_file(import_file)
+        module = parse_file(import_file)
         file = import_file
+
+    # XXX add any relevant imports
 
     if path:
         return ast.unparse(_summarize(path))
