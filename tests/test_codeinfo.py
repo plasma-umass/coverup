@@ -342,3 +342,88 @@ def test_get_info_name_includes_module_fqn(import_fixture):
         class C:
             pass'''
     )
+
+
+def test_get_info_includes_imports():
+    code = textwrap.dedent("""\
+        import os
+        from foo import bar as R, baz as Z
+        import sys, ast
+
+        class C:
+            x = len(sys.path)
+
+            def __init__(self, x: int) -> C:
+                self._foo = Z(x)
+
+            class B:
+                z = 42
+
+        def func(x: C):
+            x.foo(os.environ)
+        """
+    )
+
+    tree = ast.parse(code)
+    tree.path = Path("foo.py")
+
+    assert codeinfo.get_info(tree, 'C') == textwrap.dedent("""\
+        from foo import baz as Z
+        import sys
+
+        class C:
+            x = len(sys.path)
+
+            def __init__(self, x: int) -> C:
+                self._foo = Z(x)
+
+            class B:
+                ..."""
+    )
+
+    assert codeinfo.get_info(tree, 'func') == textwrap.dedent("""\
+        import os
+
+        def func(x: C):
+            x.foo(os.environ)"""
+    )
+
+
+def test_get_global_imports():
+    code = textwrap.dedent("""\
+        import a, b
+        from c import d as e
+        import os
+
+        try:
+            from hashlib import sha1
+        except ImportError:
+            from sha import sha as sha1
+        
+        class Foo:
+            import abc as os
+
+            def f():
+                if os.path.exists("foo"):
+                    sha1(a.x, b.x, e.x)
+    """)
+
+    print(code)
+
+    def find_node(tree, name):
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
+                return n
+
+    tree = ast.parse(code)
+#    print(ast.dump(tree, indent=2))
+
+    f = find_node(tree, 'f')
+    assert [ast.unparse(x) for x in codeinfo.get_global_imports(tree, f)] == [
+        'import a, b',
+        'from c import d as e',
+        'import os',
+        'from hashlib import sha1'
+    ]
+
+

@@ -2,45 +2,6 @@ from pathlib import Path
 import coverup.segment as segment
 import textwrap
 import json
-import ast
-
-
-def test_get_global_imports():
-    code = textwrap.dedent("""\
-        import a, b
-        from c import d as e
-        import os
-
-        try:
-            from hashlib import sha1
-        except ImportError:
-            from sha import sha as sha1
-        
-        class Foo:
-            import abc as os
-
-            def f():
-                if os.path.exists("foo"):
-                    sha1(a.x, b.x, e.x)
-    """)
-
-    print(code)
-
-    def find_node(tree, name):
-        for n in ast.walk(tree):
-            if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
-                return n
-
-    tree = ast.parse(code)
-#    print(ast.dump(tree, indent=2))
-
-    f = find_node(tree, 'f')
-    assert set(segment.get_global_imports(tree, f)) == {
-        'import a, b',
-        'from hashlib import sha1',
-        'from c import d as e',
-        'import os'
-    }
 
 
 class mockfs:

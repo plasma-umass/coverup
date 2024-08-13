@@ -2,6 +2,7 @@ import typing as T
 from pathlib import Path
 from .utils import *
 import ast
+from .codeinfo import get_global_imports
 
 
 class CodeSegment:
@@ -63,43 +64,6 @@ class CodeSegment:
 
     def missing_count(self) -> int:
         return len(self.missing_lines)+len(self.missing_branches)
-
-
-def get_global_imports(tree, node):
-    def get_names(node):
-        # TODO this ignores numerous ways in which a global import might not be visible,
-        # such as when local symbols are created, etc.  In such cases, showing the
-        # import in the excerpt is extraneous, but not incorrect.
-        for n in ast.walk(node):
-            if isinstance(n, ast.Name):
-                yield n.id
-
-    def get_imports(n):
-        # TODO imports inside Class defines name in the class' namespace; they are uncommon
-        # Imports within functions are included in the excerpt, so there's no need for us
-        # to find them.
-        if not isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            for child in ast.iter_child_nodes(n):
-                yield from get_imports(child)
-
-        if isinstance(n, (ast.Import, ast.ImportFrom)):
-            names = set(alias.asname if alias.asname else alias.name for alias in n.names)
-            yield names, n
-
-    # Process imports reversed so that the 1st import to define a name wins in the set;
-    # it's the programmer's first choice (if within a `try`, for example)
-    imap = {name: imp for imp in reversed(list(get_imports(tree))) for name in imp[0]}
-    names = set(get_names(node))
-
-    imports = []
-    while names:
-        name = names.pop()
-        if imp := imap.get(name):
-            # TODO limit 'import' to names actually needed
-            imports.append(ast.unparse(imp[1]))
-            names -= imp[0]
-
-    return imports
 
 
 def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]:
@@ -168,7 +132,9 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
                 assert line < end
                 assert (begin, end) not in line_ranges
 
-                line_ranges[(begin, end)] = (node, context, get_global_imports(tree, node))
+                line_ranges[(begin, end)] = (
+                    node, context, [ast.unparse(x) for x in get_global_imports(tree, node)]
+                )
                 lines_in_segments.update({*range(begin, end)})
 
         if line_ranges:

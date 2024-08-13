@@ -134,6 +134,51 @@ def _common_prefix_len(a: T.List[str], b: T.List[str]) -> int:
     return next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
 
 
+def get_global_imports(module: ast.Module, node: ast.AST) -> T.List[ast.Import | ast.ImportFrom]:
+    """Looks for module-level `import`s that (may) define the names seen in "node"."""
+
+    def get_names(node: ast.AST):
+        # TODO this ignores numerous ways in which a global import might not be visible,
+        # such as when local symbols are created, etc.  In such cases, showing the
+        # import in the excerpt is extraneous, but not incorrect.
+        for n in ast.walk(node):
+            if isinstance(n, ast.Name):
+                yield n.id
+
+    def get_imports(n: ast.AST):
+        # TODO imports inside Class defines name in the class' namespace; they are uncommon
+        # Imports within functions are included in the excerpt, so there's no need for us
+        # to find them.
+        if not isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.iter_child_nodes(n):
+                yield from get_imports(child)
+
+        if isinstance(n, (ast.Import, ast.ImportFrom)):
+            yield n
+
+    imports = []
+
+    names = set(get_names(node))
+    if names:
+        for imp in get_imports(module):
+            new_imp = None
+
+            for alias in imp.names:
+                alias_name = alias.asname if alias.asname else alias.name.split('.')[0]
+                if alias_name in names:
+                    if not new_imp:
+                        new_imp = copy.copy(imp)
+                        new_imp.names = []
+                        imports.append(new_imp)
+                    new_imp.names.append(alias)
+                    names.remove(alias_name)
+
+            if not names:
+                break
+
+    return imports
+
+
 def get_info(module: ast.Module, name: str) -> T.Optional[str]:
     """Returns summarized information on a class or function, following imports if necessary."""
 
@@ -168,9 +213,11 @@ def get_info(module: ast.Module, name: str) -> T.Optional[str]:
         module = parse_file(import_file)
         file = import_file
 
-    # XXX add any relevant imports
+        # FIXME catch and deal with inclusion loops?
 
     if path:
-        return ast.unparse(_summarize(path))
+        summary = _summarize(path)
+        imports = get_global_imports(module, summary)
+        return ast.unparse(ast.Module(body=[*imports, summary], type_ignores=[]))
 
     return None
