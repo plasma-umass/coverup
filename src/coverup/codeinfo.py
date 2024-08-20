@@ -83,8 +83,10 @@ def _find_name_path(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
             # FIXME the first matching import needn't be the one that resolves the name:
             #   import foo.bar
             #   from qux import xyzzy as foo
+            c_module = getattr(c, "module", None)
             for alias in c.names:
-                if (not alias.asname and alias.name.split('.')[0] == name[0]) or alias.asname == name[0]:
+                a_name = [alias.asname] if alias.asname else alias.name.split('.')
+                if (a_name[0] == name[0] or (c_module and c_module.split('.') + a_name == name)):
                     # don't need to check for len(name) == 1 here: 'import foo' is a solution for 'foo.bar'
                     imp = copy.copy(c)
                     imp.names = [alias]
@@ -189,22 +191,25 @@ def get_info(module: ast.Module, name: str) -> T.Optional[str]:
         key = key[common_prefix:]
 
     while (path := _find_name_path(module, key)) and isinstance(path[-1], (ast.Import, ast.ImportFrom)):
-        if not (module_name := _resolve_import(module.path, path[-1])):
+        imp = path[-1]
+        if not (module_name := _resolve_import(module.path, imp)):
             return None
 
         key = key[len(path)-1:]
 
-        if isinstance(path[-1], ast.Import):
-            # "import a.b.c" actually imports a, a.b and a.b.c...
+        if isinstance(imp, ast.Import) or imp.module:
+            # "import a.b.c" actually imports a, a.b and a.b.c;
+            # "from a.b import c" refers to a.b.c
             segments = module_name.split('.')
             common_prefix = _common_prefix_len(segments, key)
 
-            module_name = '.'.join(segments[:common_prefix])
-            key = key[common_prefix:]
+            if common_prefix:
+                module_name = '.'.join(segments[:common_prefix])
+                key = key[common_prefix:]
 
-        else:
+        if imp.names[0].asname:
             # replace with name out of 'from S import N as A'
-            key[0] = path[-1].names[0].name
+            key[0] = imp.names[0].name
 
         if not (spec := importlib.util.find_spec(module_name)) or not spec.origin:
             return None

@@ -32,7 +32,7 @@ def import_fixture(importlib_cleanup, monkeypatch):
     # cached, we confusingly get other tests' contents, rather than clean
     # "file not found" errors.
     with tempfile.TemporaryDirectory(dir=Path('.')) as tmpdir:
-        tmp_path = Path(tmpdir)
+        tmp_path = Path(tmpdir).resolve()
         monkeypatch.chdir(tmp_path)
         monkeypatch.syspath_prepend(tmp_path)
         yield tmp_path
@@ -61,9 +61,10 @@ def test_get_fqn_relative_syspath(importlib_cleanup, monkeypatch):
     import tempfile
 
     with tempfile.TemporaryDirectory(dir=Path('.')) as tmpdir:
-        tmp_path = Path(tmpdir)
+        assert not Path(tmpdir).is_absolute()
+        tmp_path = Path(tmpdir).resolve()
 
-        monkeypatch.chdir(tmp_path)
+        monkeypatch.chdir(tmpdir)
         monkeypatch.syspath_prepend('.')
 
         assert "foo" == get_fqn(tmp_path / "foo" / "__init__.py")
@@ -337,7 +338,19 @@ def test_get_info_name_includes_module_fqn(import_fixture):
     ))
 
     tree = codeinfo.parse_file(tmp_path / "foo" / "bar.py")
+    assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
+        class C:
+            pass'''
+    )
 
+    (tmp_path / "x.py").write_text(textwrap.dedent("""\
+        from foo.bar import C
+        """
+    ))
+
+    # class C really apears under the name "C", not "foo.bar.C", but gpt-4o sometimes
+    # asks for names like it after seeing the equivalent of  "from foo.bar import C"
+    tree = codeinfo.parse_file(tmp_path / "x.py")
     assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
         class C:
             pass'''
