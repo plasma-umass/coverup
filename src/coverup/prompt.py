@@ -139,7 +139,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
     def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict]:
         return [_message(f"""\
 Executing the test yields an error, shown below.
-Modify the test to correct it; respond only with the complete Python code in backticks.
+Modify or rewrite the test to correct it; respond only with the complete Python code in backticks.
+Use the get_info tool function as necessary.
 
 {error}""")
         ]
@@ -150,6 +151,7 @@ Modify the test to correct it; respond only with the complete Python code in bac
         return [_message(f"""\
 The tests still lack coverage: {lines_branches_do(missing_lines, set(), missing_branches)} not execute.
 Modify it to correct that; respond only with the complete Python code in backticks.
+Use the get_info tool function as necessary.
 """)
         ]
 
