@@ -173,6 +173,13 @@ def test_get_info_class():
 
         def func(x: C):
             x.foo()
+
+        class D:
+            def __new__(cls, *args, **kwargs):
+                return super().__new__(cls)
+
+            def d(self):
+                pass
         """
     )
 
@@ -195,6 +202,16 @@ def test_get_info_class():
 
             def bar(self):
                 ..."""
+    )
+
+    assert codeinfo.get_info(tree, 'D') == textwrap.dedent('''\
+        class D:
+
+            def __new__(cls, *args, **kwargs):
+                return super().__new__(cls)
+
+            def d(self):
+                ...'''
     )
 
     assert codeinfo.get_info(tree, 'C.foo') == textwrap.dedent("""\
@@ -331,6 +348,7 @@ def test_get_info_name_includes_module_fqn(import_fixture):
     tmp_path = import_fixture
 
     (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text("")
     (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
         class C:
             pass

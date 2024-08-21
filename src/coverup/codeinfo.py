@@ -105,7 +105,8 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
         path[-1] = copy.deepcopy(path[-1])
         for c in ast.iter_child_nodes(path[-1]):
             if (isinstance(c, ast.ClassDef) or
-                (isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef)) and c.name != "__init__")):
+                (isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef)) and \
+                 c.name not in ("__init__", "__new__"))):
                 # Leave "__init__" unmodified as it's likely to contain important member information
                 c.body = [ast.Expr(ast.Constant(value=ast.literal_eval("...")))]
 
