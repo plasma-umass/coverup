@@ -79,6 +79,9 @@ def _find_name_path(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
         if isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef)) and c.name == name[0]:
             return [c] if len(name) == 1 else []
 
+        if isinstance(c, ast.Assign) and any(t.id == name[0] for t in c.targets):
+            return [c] if len(name) == 1 else []
+
         if isinstance(c, (ast.Import, ast.ImportFrom)):
             # FIXME the first matching import needn't be the one that resolves the name:
             #   import foo.bar

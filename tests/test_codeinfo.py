@@ -250,6 +250,43 @@ def test_get_info_class():
     assert codeinfo.get_info(tree, 'foo') == None
 
 
+def test_get_info_assignment():
+    code = textwrap.dedent("""\
+        PI = 3.1415
+
+        x = 0
+        if x == 0:
+            TYPES = (
+                int,
+                str,
+            )
+
+        class C:
+            x = 10
+
+            def __init__(self, x: int) -> C:
+                self._foo = x
+        """
+    )
+
+    tree = ast.parse(code)
+    tree.path = Path("foo.py")
+
+    assert codeinfo.get_info(tree, 'PI') == textwrap.dedent("""\
+        PI = 3.1415"""
+    )
+
+    # FIXME do proper code slicing
+    assert codeinfo.get_info(tree, 'TYPES') == textwrap.dedent("""\
+        TYPES = (int, str)"""
+    )
+
+    assert codeinfo.get_info(tree, 'C.x') == textwrap.dedent("""\
+        class C:
+            ...
+            x = 10"""
+    )
+
 def test_get_info_imported(import_fixture):
     tmp_path = import_fixture
 
