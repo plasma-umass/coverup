@@ -37,6 +37,8 @@ def import_fixture(importlib_cleanup, monkeypatch):
         monkeypatch.syspath_prepend(tmp_path)
         yield tmp_path
 
+    tmp_path.rmdir()
+
 
 def get_fqn(p):
     fqn = codeinfo._get_fqn(p)
@@ -61,10 +63,10 @@ def test_get_fqn_relative_syspath(importlib_cleanup, monkeypatch):
     import tempfile
 
     with tempfile.TemporaryDirectory(dir=Path('.')) as tmpdir:
-        assert not Path(tmpdir).is_absolute()
         tmp_path = Path(tmpdir).resolve()
+        rel_path = tmp_path.relative_to(Path.cwd())
 
-        monkeypatch.chdir(tmpdir)
+        monkeypatch.chdir(rel_path)
         monkeypatch.syspath_prepend('.')
 
         assert "foo" == get_fqn(tmp_path / "foo" / "__init__.py")
@@ -287,6 +289,7 @@ def test_get_info_assignment():
             x = 10"""
     )
 
+
 def test_get_info_imported(import_fixture):
     tmp_path = import_fixture
 
@@ -345,6 +348,60 @@ def test_get_info_imported(import_fixture):
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
         class Foo:
             pass'''
+    )
+
+
+def test_get_info_import_in_class(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        class C:
+            import foo
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        from . import bar
+
+        class Foo:
+            pass
+        """
+    ))
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class Bar:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'C.foo.bar.Bar') == textwrap.dedent('''\
+        class Bar:
+            pass'''
+    )
+
+
+def test_get_info_imported_assignment(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import foo.constants as C
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text("")
+    (tmp_path / "foo" / "constants.py").write_text(textwrap.dedent("""\
+        PI = 3.1415926
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+
+    assert codeinfo.get_info(tree, 'C.PI') == textwrap.dedent('''\
+        PI = 3.1415926'''
     )
 
 
