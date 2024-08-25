@@ -4,8 +4,8 @@ from pathlib import Path
 import typing as T
 import importlib.util
 
-#_debug = lambda x: None
-_debug = print
+_debug = lambda x: None
+#_debug = print
 
 
 # TODO use 'ast' alternative that retains comments?
