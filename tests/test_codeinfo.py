@@ -594,7 +594,6 @@ def test_get_info_from_import_relative(import_fixture):
     )
 
 
-@pytest.mark.skip("not yet fully implemented... do we need it?")
 def test_get_info_import_in_class(import_fixture):
     tmp_path = import_fixture
 
@@ -623,19 +622,20 @@ def test_get_info_import_in_class(import_fixture):
     assert codeinfo.get_info(tree, 'C.foo.bar.Bar') == textwrap.dedent('''\
         in code.py:
         ```python
-            class C:
-                import foo
+        class C:
+            ...
+            import foo
         ```
 
         in foo/__init__.py:
         ```python
-            from . import bar
+        from . import bar
         ```
 
         in foo/bar.py:
         ```python
-            class Bar:
-                pass
+        class Bar:
+            pass
         ```'''
     )
 
@@ -750,13 +750,16 @@ def test_get_info_name_includes_module_fqn(import_fixture, from_module):
         )
 
 
-def test_get_info_includes_imports():
-    code = textwrap.dedent("""\
+def test_get_info_includes_imports(import_fixture):
+    tmp_path = import_fixture
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
         import os
         from foo import bar as R, baz as Z
         import sys, ast
 
-        class C:
+        class C(Z):
+            from foo import Foo
             x = len(sys.path)
 
             def __init__(self, x: int) -> C:
@@ -768,17 +771,25 @@ def test_get_info_includes_imports():
         def func(x: C):
             x.foo(os.environ)
         """
-    )
+    ))
 
-    tree = ast.parse(code)
-    tree.path = Path("foo.py")
+    (tmp_path / "foo.py").write_text(textwrap.dedent("""\
+        import sys
+        from .bar import Bar
 
+        class Foo(Bar):
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'C') == textwrap.dedent("""\
         ```python
         from foo import baz as Z
         import sys
 
-        class C:
+        class C(Z):
+            from foo import Foo
             x = len(sys.path)
 
             def __init__(self, x: int) -> C:
@@ -786,6 +797,25 @@ def test_get_info_includes_imports():
 
             class B:
                 ...
+        ```"""
+    )
+
+    assert codeinfo.get_info(tree, 'C.Foo') == textwrap.dedent("""\
+        in code.py:
+        ```python
+        from foo import baz as Z
+
+        class C(Z):
+            ...
+            from foo import Foo
+        ```
+
+        in foo.py:
+        ```python
+        from .bar import Bar
+
+        class Foo(Bar):
+            pass
         ```"""
     )
 
