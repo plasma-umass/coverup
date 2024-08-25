@@ -145,7 +145,9 @@ def test_get_info_class(import_fixture):
 
     tree = codeinfo.parse_file(code)
 
+    print(codeinfo.get_info(tree, 'C'))
     assert codeinfo.get_info(tree, 'C') == textwrap.dedent("""\
+        ```python
         class C:
             x = 10
 
@@ -160,29 +162,35 @@ def test_get_info_class(import_fixture):
                 ...
 
             def bar(self):
-                ..."""
+                ...
+        ```"""
     )
 
     assert codeinfo.get_info(tree, 'D') == textwrap.dedent('''\
+        ```python
         class D:
 
             def __new__(cls, *args, **kwargs):
                 return super().__new__(cls)
 
             def d(self):
-                ...'''
+                ...
+        ```'''
     )
 
     assert codeinfo.get_info(tree, 'C.foo') == textwrap.dedent("""\
+        ```python
         class C:
             ...
 
             @deco
             def foo(self) -> None:
-                print(self._foo)"""
+                print(self._foo)
+        ```"""
     )
 
     assert codeinfo.get_info(tree, 'C.B') == textwrap.dedent("""\
+        ```python
         class C:
             ...
 
@@ -190,10 +198,12 @@ def test_get_info_class(import_fixture):
                 z = 42
 
                 def foo():
-                    ..."""
+                    ...
+        ```"""
     )
 
     assert codeinfo.get_info(tree, 'C.B.foo') == textwrap.dedent('''\
+        ```python
         class C:
             ...
 
@@ -202,7 +212,8 @@ def test_get_info_class(import_fixture):
 
                 def foo():
                     """far niente"""
-                    pass'''
+                    pass
+        ```'''
     )
 
     assert codeinfo.get_info(tree, 'C.B.bar') == None
@@ -234,18 +245,24 @@ def test_get_info_assignment(import_fixture):
     tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'PI') == textwrap.dedent("""\
-        PI = 3.1415"""
+        ```python
+        PI = 3.1415
+        ```"""
     )
 
     # FIXME do proper code slicing
     assert codeinfo.get_info(tree, 'TYPES') == textwrap.dedent("""\
-        TYPES = (int, str)"""
+        ```python
+        TYPES = (int, str)
+        ```"""
     )
 
     assert codeinfo.get_info(tree, 'C.x') == textwrap.dedent("""\
+        ```python
         class C:
             ...
-            x = 10"""
+            x = 10
+        ```"""
     )
 
 
@@ -268,8 +285,16 @@ def test_get_info_import(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        import foo
+        ```
+
+        in foo/__init__.py:
+        ```python
         class Foo:
-            pass'''
+            pass
+        ```'''
     )
 
     assert codeinfo.get_info(tree, 'foo.baz') == None # doesn't exist
@@ -299,13 +324,29 @@ def test_get_info_import_submodule(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        import foo.bar
+        ```
+
+        in foo/__init__.py:
+        ```python
         class Foo:
-            pass'''
+            pass
+        ```'''
     )
 
     assert codeinfo.get_info(tree, 'foo.bar.Bar') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        import foo.bar
+        ```
+
+        in foo/bar.py:
+        ```python
         class Bar:
-            pass'''
+            pass
+        ```'''
     )
 
 
@@ -328,8 +369,16 @@ def test_get_info_import_as(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'baz.Foo') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        import foo as baz
+        ```
+
+        in foo/__init__.py:
+        ```python
         class Foo:
-            pass'''
+            pass
+        ```'''
     )
 
 
@@ -361,11 +410,19 @@ def test_get_info_from_import_symbol_exists(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'bar.Bar') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        from foo import bar
+        ```
+
+        in foo/__init__.py:
+        ```python
         class bar:
             ...
 
             class Bar:
-                pass'''
+                pass
+        ```'''
     )
 
 
@@ -397,11 +454,19 @@ def test_get_info_from_import_as_symbol_exists(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'baz.Bar') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        from foo import bar as baz
+        ```
+
+        in foo/__init__.py:
+        ```python
         class bar:
             ...
 
             class Bar:
-                pass'''
+                pass
+        ```'''
     )
 
 
@@ -429,8 +494,16 @@ def test_get_info_from_import_symbol_doesnt_exist(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'bar.Bar') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        from foo import bar
+        ```
+
+        in foo/bar.py:
+        ```python
         class Bar:
-            pass'''
+            pass
+        ```'''
     )
 
 
@@ -458,8 +531,16 @@ def test_get_info_from_import_as_symbol_doesnt_exist(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'baz.Bar') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        from foo import bar as baz
+        ```
+
+        in foo/bar.py:
+        ```python
         class Bar:
-            pass'''
+            pass
+        ```'''
     )
 
 
@@ -490,8 +571,26 @@ def test_get_info_from_import_relative(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'foo.bar.Bar') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        import foo
+        ```
+
+        in foo/__init__.py:
+        ```python
+        from . import bar
+        ```
+
+        in foo/bar.py:
+        ```python
+        from .baz import Baz as Bar
+        ```
+
+        in foo/baz.py:
+        ```python
         class Baz:
-            answer = 42'''
+            answer = 42
+        ```'''
     )
 
 
@@ -560,7 +659,15 @@ def test_get_info_imported_assignment(import_fixture):
     tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'C.PI') == textwrap.dedent('''\
-        PI = 3.1415926'''
+        in code.py:
+        ```python
+        import foo.constants as C
+        ```
+
+        in foo/constants.py:
+        ```python
+        PI = 3.1415926
+        ```'''
     )
 
 
@@ -592,8 +699,16 @@ def test_get_info_import_and_class_in_block(import_fixture):
     tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        import foo
+        ```
+
+        in foo/__init__.py:
+        ```python
         class Foo:
-            pass'''
+            pass
+        ```'''
     )
 
 
@@ -612,8 +727,10 @@ def test_get_info_name_includes_module_fqn(import_fixture, from_module):
     if from_module:
         tree = codeinfo.parse_file(tmp_path / "foo" / "bar.py")
         assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
+            ```python
             class C:
-                pass'''
+                pass
+            ```'''
         )
 
     else:
@@ -626,8 +743,10 @@ def test_get_info_name_includes_module_fqn(import_fixture, from_module):
         # asks for names like it after seeing the equivalent of  "from foo.bar import C"
         tree = codeinfo.parse_file(tmp_path / "x.py")
         assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
+            ```python
             class C:
-                pass'''
+                pass
+            ```'''
         )
 
 
@@ -655,6 +774,7 @@ def test_get_info_includes_imports():
     tree.path = Path("foo.py")
 
     assert codeinfo.get_info(tree, 'C') == textwrap.dedent("""\
+        ```python
         from foo import baz as Z
         import sys
 
@@ -665,14 +785,17 @@ def test_get_info_includes_imports():
                 self._foo = Z(x)
 
             class B:
-                ..."""
+                ...
+        ```"""
     )
 
     assert codeinfo.get_info(tree, 'func') == textwrap.dedent("""\
+        ```python
         import os
 
         def func(x: C):
-            x.foo(os.environ)"""
+            x.foo(os.environ)
+        ```"""
     )
 
 

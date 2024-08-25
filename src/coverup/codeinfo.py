@@ -76,6 +76,11 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
     if module.path in paths_seen: return None
     paths_seen.add(module.path)
 
+    def transition(node: ast.Import | ast.ImportFrom, alias: ast.alias, mod: ast.Module) -> T.List:
+        imp = copy.copy(node)
+        imp.names = [alias]
+        return [imp, mod]
+
     def find_name(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.name == name[0]:
@@ -101,15 +106,15 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
             for alias in node.names:
                 if alias.asname:
                     if alias.asname == name[0]:
-                        if path := _find_name_path(_load_module(alias.name), name[1:], paths_seen=paths_seen):
-                            return path
+                        mod = _load_module(alias.name)
+                        if path := _find_name_path(mod, name[1:], paths_seen=paths_seen):
+                            return transition(node, alias, mod) + path
 
                 elif (import_name := alias.name.split('.'))[0] == name[0]:
                     common_prefix = _common_prefix_len(import_name, name)
-                    module_name = '.'.join(import_name[:common_prefix])
-                    if path := _find_name_path(_load_module(module_name), name[common_prefix:],
-                                               paths_seen=paths_seen):
-                        return path
+                    mod = _load_module('.'.join(import_name[:common_prefix]))
+                    if path := _find_name_path(mod, name[common_prefix:], paths_seen=paths_seen):
+                        return transition(node, alias, mod) + path
 
         if isinstance(node, ast.ImportFrom):
             # from a.b import N         either gets symbol N out of a.b, or imports a.b.N as N
@@ -120,14 +125,14 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
                 if (alias.asname if alias.asname else alias.name) == name[0]:
                     modname = _resolve_from_import(module.path, node)
                     _debug(f"looking for symbol ({[alias.name, *name[1:]]} in {modname})")
-                    if path := _find_name_path(_load_module(modname), [alias.name, *name[1:]],
-                                               paths_seen=paths_seen):
-                        return path
+                    mod = _load_module(modname)
+                    if path := _find_name_path(mod, [alias.name, *name[1:]], paths_seen=paths_seen):
+                        return transition(node, alias, mod) + path
 
                     _debug(f"looking for module ({name[1:]} in {modname}.{alias.name})")
                     if (mod := _load_module(f"{modname}.{alias.name}")) and \
                        (path := _find_name_path(mod, name[1:], paths_seen=paths_seen)):
-                        return path
+                        return transition(node, alias, mod) + path
 
         for c in ast.iter_child_nodes(node):
             if (path := find_name(c, name)):
@@ -151,14 +156,14 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
                 # Leave "__init__" unmodified as it's likely to contain important member information
                 c.body = [ast.Expr(ast.Constant(value=ast.literal_eval("...")))]
 
-    # now the path of Class objects
+    # now Class objects
     for i in reversed(range(len(path)-1)):
-        assert isinstance(path[i], ast.ClassDef)
-        path[i] = copy.copy(path[i])
-        path[i].body = [
-            ast.Expr(ast.Constant(value=ast.literal_eval("..."))),
-            path[i+1]
-        ]
+        if isinstance(path[i], ast.ClassDef):
+            path[i] = copy.copy(path[i])
+            path[i].body = [
+                ast.Expr(ast.Constant(value=ast.literal_eval("..."))),
+                path[i+1]
+            ]
 
     return path[0]
 
@@ -243,8 +248,30 @@ def get_info(module: ast.Module, name: str) -> T.Optional[str]:
 
 
     if path:
-        summary = _summarize(path)
-        imports = get_global_imports(module, summary)
-        return ast.unparse(ast.Module(body=[*imports, summary], type_ignores=[]))
+        _summarize(path)
+        if any(isinstance(n, ast.Module) for n in path):
+            path = [module] + path
+
+            for i in range(len(path)):
+                _debug(f"path[{i}]={ast.dump(path[i])}")
+
+            result = ""
+            for i in range(len(path)):
+                if isinstance(path[i], ast.Module):
+                    mod, content = path[i:i+2]
+                    imports = get_global_imports(mod, content)
+                    if result: result += "\n\n"
+                    result += f"""\
+in {_package_path(mod.path)}:
+```python
+{ast.unparse(ast.Module(body=[*imports, content], type_ignores=[]))}
+```"""
+            return result
+        else:
+            imports = get_global_imports(module, path[0])
+            return f"""\
+```python
+{ast.unparse(ast.Module(body=[*imports, path[0]], type_ignores=[]))}
+```"""
 
     return None

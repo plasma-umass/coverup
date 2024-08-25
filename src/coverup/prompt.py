@@ -178,12 +178,8 @@ Use the get_info tool function as necessary.
         from .codeinfo import get_info, parse_file
 
         if info := get_info(parse_file(ctx.path), name):
-            return f"""\
-{name} maps to:
-```python
-{info}
-```
-"""
+            return info
+
         return "Unable to obtain information."
 
 
