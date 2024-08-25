@@ -472,13 +472,7 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
     """Works to improve coverage for a code segment."""
     global args
 
-    def log_prompts(prompts: T.List[dict]):
-        for p in prompts:
-            log_write(seg, p['content'])
-    
     messages = prompter.initial_prompt(seg)
-    log_prompts(messages)
-
     attempts = 0
 
     if args.dry_run:
@@ -495,8 +489,6 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
             break
 
         response_message = response["choices"][0]["message"]
-        log_write(seg, response_message['content'])
-
         messages.append(response_message)
 
         if '```python' in response_message['content']:
@@ -527,7 +519,6 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
             state.inc_counter('F')
             prompts = prompter.error_prompt(seg, clean_error(str(e.stdout, 'UTF-8', errors='ignore')))
             messages.extend(prompts)
-            log_prompts(prompts)
             continue
 
         result = coverage['files'].get(seg.filename, None)
@@ -549,7 +540,6 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
             state.inc_counter('U')
             prompts = prompter.missing_coverage_prompt(seg, seg.missing_lines, seg.missing_branches)
             messages.extend(prompts)
-            log_prompts(prompts)
             continue
 
         asked = {'lines': sorted(seg.missing_lines), 'branches': sorted(seg.missing_branches)}
