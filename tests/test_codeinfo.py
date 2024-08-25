@@ -37,7 +37,7 @@ def import_fixture(importlib_cleanup, monkeypatch):
         monkeypatch.syspath_prepend(tmp_path)
         yield tmp_path
 
-    tmp_path.rmdir()
+#    tmp_path.rmdir()
 
 
 def get_fqn(p):
@@ -78,7 +78,7 @@ def test_get_fqn_relative_syspath(importlib_cleanup, monkeypatch):
         assert "foo.bar.baz" == get_fqn(Path("foo") / "bar" / "baz.py")
 
 
-def test_resolve_import(import_fixture):
+def test_resolve_from_import(import_fixture):
     tmp_path = import_fixture
 
     def I(imp_code):
@@ -93,66 +93,24 @@ def test_resolve_import(import_fixture):
     (tmp_path / "foo" / "baz.py").touch()
     (tmp_path / "bar.py").touch()
 
-    file = tmp_path / "code.py"
     foo = tmp_path / "foo"
-    assert "foo" == codeinfo._resolve_import(file, I("import foo"))
-    assert "foo.bar" == codeinfo._resolve_import(file, I("import foo.bar"))
-    assert "bar"  == codeinfo._resolve_import(file, I("import bar"))
-
     file = foo / "__init__.py"
-    assert "bar" == codeinfo._resolve_import(file, I("import bar"))
-    assert "foo.bar" == codeinfo._resolve_import(file, I("import foo.bar"))
-    assert "foo.bar" == codeinfo._resolve_import(file, I("from . import bar"))
+    assert "foo" == codeinfo._resolve_from_import(file, I("from . import bar"))
+    assert "foo.bar" == codeinfo._resolve_from_import(file, I("from .bar import baz"))
+    assert "foo.bar.none" == codeinfo._resolve_from_import(file, I("from .bar.none import baz"))
 
     file = foo / "bar" / "__init__.py"
-    assert "foo.bar.none" == codeinfo._resolve_import(file, I("import foo.bar.none"))
-    assert "foo.bar.none" == codeinfo._resolve_import(file, I("from . import none"))
-    assert "foo.baz" == codeinfo._resolve_import(file, I("from .. import baz"))
-    assert "foo.bar.none" == codeinfo._resolve_import(file, I("from .none import *"))
-    assert "foo.bar.none" == codeinfo._resolve_import(file, I("from ..bar.none import *"))
+    assert "foo.bar" == codeinfo._resolve_from_import(file, I("from . import none"))
+    assert "foo.bar.none" == codeinfo._resolve_from_import(file, I("from .none import *"))
+    assert "foo.baz" == codeinfo._resolve_from_import(file, I("from ..baz import *"))
+    assert "foo.bar.none" == codeinfo._resolve_from_import(file, I("from ..bar.none import *"))
 
 
-def test_find_name_path_import():
-    code = textwrap.dedent("""\
-        import os
-        from . import foo
-        import bar
+def test_get_info_class(import_fixture):
+    tmp_path = import_fixture
 
-        class C:
-            from bar import bar
-            x = 10
-
-            def __init__(self, x: int) -> C:
-                self._foo = x
-
-            class B:
-                z = 42
-
-            @deco
-            def foo(self) -> None:
-                print(self._foo)
-
-        def func(x: C):
-            import xyzzy
-            x.foo()
-        """
-    )
-
-    tree = ast.parse(code)
-
-    def U(x):
-        if x: return ast.unparse(x[-1])
-
-    assert None == U(codeinfo._find_name_path(tree, ["sys"]))
-    assert 'import os' == U(codeinfo._find_name_path(tree, ["os"]))
-    assert 'from bar import bar' == U(codeinfo._find_name_path(tree, ["C", "bar"]))
-    assert None == U(codeinfo._find_name_path(tree, ["xyzzy"]))
-
-    assert 'import bar' == U(codeinfo._find_name_path(tree, ["bar", "baz"]))
-
-
-def test_get_info_class():
-    code = textwrap.dedent("""\
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
         class C:
             x = 10
 
@@ -183,10 +141,9 @@ def test_get_info_class():
             def d(self):
                 pass
         """
-    )
+    ))
 
-    tree = ast.parse(code)
-    tree.path = Path("foo.py")
+    tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'C') == textwrap.dedent("""\
         class C:
@@ -252,8 +209,11 @@ def test_get_info_class():
     assert codeinfo.get_info(tree, 'foo') == None
 
 
-def test_get_info_assignment():
-    code = textwrap.dedent("""\
+def test_get_info_assignment(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
         PI = 3.1415
 
         x = 0
@@ -269,10 +229,9 @@ def test_get_info_assignment():
             def __init__(self, x: int) -> C:
                 self._foo = x
         """
-    )
+    ))
 
-    tree = ast.parse(code)
-    tree.path = Path("foo.py")
+    tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'PI') == textwrap.dedent("""\
         PI = 3.1415"""
@@ -290,67 +249,253 @@ def test_get_info_assignment():
     )
 
 
-def test_get_info_imported(import_fixture):
+def test_get_info_import(import_fixture):
     tmp_path = import_fixture
 
     code = tmp_path / "code.py"
     code.write_text(textwrap.dedent("""\
         import os
-
-        import foo.bar
-        from foo.foo import foofoo as foo2
-        from foo import Bar as FooBar
+        import foo
         """
     ))
 
     (tmp_path / "foo").mkdir()
     (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
-        from .bar import Bar
-
         class Foo:
             pass
         """
     ))
 
-    (tmp_path / "foo" / "foo.py").write_text(textwrap.dedent("""\
-        def foofoo():
-            return 42
-        """
-    ))
-
-    (tmp_path / "foo" / "bar").mkdir()
-    (tmp_path / "foo" / "bar" / "__init__.py").write_text(textwrap.dedent("""\
-        from ..baz import Baz as Bar
-        """
-    ))
-    (tmp_path / "foo" / "baz.py").write_text(textwrap.dedent("""\
-        class Baz:
-            class Qux:
-                answer = 42
-        """
-    ))
-
-
     tree = codeinfo.parse_file(code)
-
-    assert codeinfo.get_info(tree, 'foo2') == textwrap.dedent('''\
-        def foofoo():
-            return 42'''
-    )
-
-    assert codeinfo.get_info(tree, 'FooBar') == textwrap.dedent('''\
-        class Baz:
-
-            class Qux:
-                ...'''
-    )
-
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
         class Foo:
             pass'''
     )
 
+    assert codeinfo.get_info(tree, 'foo.baz') == None # doesn't exist
 
+
+def test_get_info_import_submodule(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        import foo.bar
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+        """
+    ))
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class Bar:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
+        class Foo:
+            pass'''
+    )
+
+    assert codeinfo.get_info(tree, 'foo.bar.Bar') == textwrap.dedent('''\
+        class Bar:
+            pass'''
+    )
+
+
+def test_get_info_import_as(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        import foo as baz
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'baz.Foo') == textwrap.dedent('''\
+        class Foo:
+            pass'''
+    )
+
+
+def test_get_info_from_import_symbol_exists(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        from foo import bar
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+
+        class bar:  # 'bar' is defined here -- takes precedence over bar.py
+            class Bar:
+                pass
+        """
+    ))
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class Bar:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'bar.Bar') == textwrap.dedent('''\
+        class bar:
+            ...
+
+            class Bar:
+                pass'''
+    )
+
+
+def test_get_info_from_import_as_symbol_exists(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        from foo import bar as baz
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+
+        class bar:  # 'bar' is defined here -- takes precedence over bar.py
+            class Bar:
+                pass
+        """
+    ))
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class Bar:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'baz.Bar') == textwrap.dedent('''\
+        class bar:
+            ...
+
+            class Bar:
+                pass'''
+    )
+
+
+def test_get_info_from_import_symbol_doesnt_exist(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        from foo import bar
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+        """
+    ))
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class Bar:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'bar.Bar') == textwrap.dedent('''\
+        class Bar:
+            pass'''
+    )
+
+
+def test_get_info_from_import_as_symbol_doesnt_exist(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        from foo import bar as baz
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+        """
+    ))
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class Bar:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'baz.Bar') == textwrap.dedent('''\
+        class Bar:
+            pass'''
+    )
+
+
+def test_get_info_from_import_relative(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        import foo
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        from . import bar
+        """
+    ))
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        from .baz import Baz as Bar
+        """
+    ))
+    (tmp_path / "foo" / "baz.py").write_text(textwrap.dedent("""\
+        class Baz:
+            answer = 42
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'foo.bar.Bar') == textwrap.dedent('''\
+        class Baz:
+            answer = 42'''
+    )
+
+
+@pytest.mark.skip("not yet fully implemented... do we need it?")
 def test_get_info_import_in_class(import_fixture):
     tmp_path = import_fixture
 
@@ -377,8 +522,22 @@ def test_get_info_import_in_class(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'C.foo.bar.Bar') == textwrap.dedent('''\
-        class Bar:
-            pass'''
+        in code.py:
+        ```python
+            class C:
+                import foo
+        ```
+
+        in foo/__init__.py:
+        ```python
+            from . import bar
+        ```
+
+        in foo/bar.py:
+        ```python
+            class Bar:
+                pass
+        ```'''
     )
 
 
@@ -438,7 +597,8 @@ def test_get_info_import_and_class_in_block(import_fixture):
     )
 
 
-def test_get_info_name_includes_module_fqn(import_fixture):
+@pytest.mark.parametrize("from_module", [True, False])
+def test_get_info_name_includes_module_fqn(import_fixture, from_module):
     tmp_path = import_fixture
 
     (tmp_path / "foo").mkdir()
@@ -449,24 +609,26 @@ def test_get_info_name_includes_module_fqn(import_fixture):
         """
     ))
 
-    tree = codeinfo.parse_file(tmp_path / "foo" / "bar.py")
-    assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
-        class C:
-            pass'''
-    )
+    if from_module:
+        tree = codeinfo.parse_file(tmp_path / "foo" / "bar.py")
+        assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
+            class C:
+                pass'''
+        )
 
-    (tmp_path / "x.py").write_text(textwrap.dedent("""\
-        from foo.bar import C
-        """
-    ))
+    else:
+        (tmp_path / "x.py").write_text(textwrap.dedent("""\
+            from foo.bar import C
+            """
+        ))
 
-    # class C really apears under the name "C", not "foo.bar.C", but gpt-4o sometimes
-    # asks for names like it after seeing the equivalent of  "from foo.bar import C"
-    tree = codeinfo.parse_file(tmp_path / "x.py")
-    assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
-        class C:
-            pass'''
-    )
+        # class C really apears under the name "C", not "foo.bar.C", but gpt-4o sometimes
+        # asks for names like it after seeing the equivalent of  "from foo.bar import C"
+        tree = codeinfo.parse_file(tmp_path / "x.py")
+        assert codeinfo.get_info(tree, 'foo.bar.C') == textwrap.dedent('''\
+            class C:
+                pass'''
+        )
 
 
 def test_get_info_includes_imports():

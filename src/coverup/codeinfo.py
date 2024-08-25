@@ -10,8 +10,8 @@ _debug = print
 
 # TODO use 'ast' alternative that retains comments?
 
-def _get_fqn(file: Path) -> T.Optional[T.List[str]]:
-    """Returns a source file's Python Fully Qualified Name, as a list name parts."""
+def _package_path(file: Path) -> T.Optional[T.List[str]]:
+    """Returns a Python source file's path relative to its package"""
     import sys
 
     if not file.is_absolute():
@@ -26,78 +26,116 @@ def _get_fqn(file: Path) -> T.Optional[T.List[str]]:
 
         for p in parents:
             if p == path:
-                relative = file.relative_to(p)
-                relative = relative.parent if relative.name == '__init__.py' else relative.parent / relative.stem
-                return relative.parts
+                return file.relative_to(p)
 
 
-def _resolve_import(file: Path, imp: ast.Import | ast.ImportFrom) -> str:
-    """Given a file containing an `import` and the `import` itself, determines
-       what module to read for the import."""
+def _get_fqn(file: Path) -> T.Optional[T.List[str]]:
+    """Returns a source file's Python Fully Qualified Name, as a list name parts."""
+    if not (path := _package_path(file)):
+        return none
 
-    if isinstance(imp, ast.ImportFrom):
-        if imp.level > 0:  # relative import
-            if not (fqn := _get_fqn(file)):
-                return None
-
-            if imp.level > len(fqn):
-                return None # would go beyond top-level package
-
-            if imp.level > 1:
-                fqn = fqn[:-(imp.level-1)]
-
-            return f"{'.'.join(fqn)}.{imp.module if imp.module else imp.names[0].name}"
-
-        return imp.module # absolute from ... import 
-
-    assert isinstance(imp, ast.Import)
-    assert len(imp.names) == 1
-    return imp.names[0].name
+    path = path.parent if path.name == '__init__.py' else path.parent / path.stem
+    return path.parts
 
 
-def _find_name_path(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
+def _resolve_from_import(file: Path, imp: ast.ImportFrom) -> str:
+    """Resolves the module name in a `from X import Y` statement."""
+
+    if imp.level > 0:  # relative import
+        if not (pkg_path := _package_path(file)):
+            return None
+
+        pkg_path = pkg_path.parts
+        if imp.level > len(pkg_path):
+            return None # would go beyond top-level package
+
+        return ".".join(pkg_path[:-imp.level]) + (f".{imp.module}" if imp.module else "")
+
+    return imp.module # absolute from ... import 
+
+
+def _load_module(module_name: str) -> ast.Module | None:
+    try:
+        if (spec := importlib.util.find_spec(module_name)) and spec.origin:
+            return parse_file(Path(spec.origin))
+
+    except ModuleNotFoundError:
+        pass
+
+    return None
+
+
+def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[Path] = None) -> T.List[ast.AST]:
     """Looks for a class or function by name, returning the "path" of ast.ClassDef modules crossed
        to find it.  If an `import` is found for the sought, it is returned instead.
     """
+    _debug(f"looking up {name} in {module.path}")
 
-    _debug(f"looking up {name} in {ast.dump(node)}")
+    if not module: return None
+    if not paths_seen: paths_seen = set()
+    if module.path in paths_seen: return None
+    paths_seen.add(module.path)
 
-    if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-        if node.name == name[0]:
-            if len(name) == 1:
-                return [node]
+    def find_name(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name == name[0]:
+                if len(name) == 1:
+                    return [node]
 
-            if isinstance(node, ast.ClassDef):
-                for c in ast.iter_child_nodes(node):
-                    if (path := _find_name_path(c, name[1:])):
-                        return [node, *path]
+                if isinstance(node, ast.ClassDef):
+                    for c in ast.iter_child_nodes(node):
+                        if (path := find_name(c, name[1:])):
+                            return [node, *path]
+
+            return []
+
+        if (isinstance(node, ast.Assign) and
+            any(isinstance(n, ast.Name) and n.id == name[0] for t in node.targets for n in ast.walk(t))):
+            return [node] if len(name) == 1 else []
+
+        if isinstance(node, ast.Import):
+            _debug(f"{ast.dump(node)=}")
+            # import N
+            # import N.x                imports N and N.x
+            # import a.b as N           'a.b' is renamed 'N'
+            for alias in node.names:
+                if alias.asname:
+                    if alias.asname == name[0]:
+                        if path := _find_name_path(_load_module(alias.name), name[1:], paths_seen=paths_seen):
+                            return path
+
+                elif (import_name := alias.name.split('.'))[0] == name[0]:
+                    common_prefix = _common_prefix_len(import_name, name)
+                    module_name = '.'.join(import_name[:common_prefix])
+                    if path := _find_name_path(_load_module(module_name), name[common_prefix:],
+                                               paths_seen=paths_seen):
+                        return path
+
+        if isinstance(node, ast.ImportFrom):
+            # from a.b import N         either gets symbol N out of a.b, or imports a.b.N as N
+            # from a.b import c as N
+
+            _debug(f"{ast.dump(node)=}")
+            for alias in node.names:
+                if (alias.asname if alias.asname else alias.name) == name[0]:
+                    modname = _resolve_from_import(module.path, node)
+                    _debug(f"looking for symbol ({[alias.name, *name[1:]]} in {modname})")
+                    if path := _find_name_path(_load_module(modname), [alias.name, *name[1:]],
+                                               paths_seen=paths_seen):
+                        return path
+
+                    _debug(f"looking for module ({name[1:]} in {modname}.{alias.name})")
+                    if (mod := _load_module(f"{modname}.{alias.name}")) and \
+                       (path := _find_name_path(mod, name[1:], paths_seen=paths_seen)):
+                        return path
+
+        for c in ast.iter_child_nodes(node):
+            if (path := find_name(c, name)):
+                return path
 
         return []
 
-    if (isinstance(node, ast.Assign) and
-        any(isinstance(n, ast.Name) and n.id == name[0] for t in node.targets for n in ast.walk(t))):
-        return [node] if len(name) == 1 else []
-
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
-        # FIXME the first matching import needn't be the one that resolves the name:
-        #   import foo.bar
-        #   from qux import xyzzy as foo
-        c_module = getattr(node, "module", None)
-        for alias in node.names:
-            a_name = [alias.asname] if alias.asname else alias.name.split('.')
-            if (a_name[0] == name[0] or (c_module and c_module.split('.') + a_name == name)):
-                # don't need to check for len(name) == 1 here: 'import foo' is a solution for 'foo.bar'
-                imp = copy.copy(node)
-                imp.names = [alias]
-                return [imp]
-
-        return []
-
-    for c in ast.iter_child_nodes(node):
-        if (path := _find_name_path(c, name)):
-            return path
-
-    return []
+    return find_name(module, name)
 
 
 def _summarize(path: T.List[ast.AST]) -> ast.AST:
@@ -194,40 +232,15 @@ def get_info(module: ast.Module, name: str) -> T.Optional[str]:
         (common_prefix := _common_prefix_len(module_fqn, key))):
         key = key[common_prefix:]
 
-    while (path := _find_name_path(module, key)) and isinstance(path[-1], (ast.Import, ast.ImportFrom)):
-        imp = path[-1]
-        if not (module_name := _resolve_import(module.path, imp)):
-            return None
+    if not (path := _find_name_path(module, key)):
+        # Couldn't find the name in the context of the given module;
+        # try to interpret it as an absolute fqn (GPT asks for that sometimes)
 
-        key = key[len(path)-1:]    # currently only relevant for 'import' within class
+        key = name.split('.')
+        for i in range(len(key)-1, 0, -1):
+            if (mod := _load_module('.'.join(key[:i]))) and (path := _find_name_path(mod, key[i:])):
+                break
 
-        # import N
-        # import N.x                imports N and N.x
-        # import a.b as N           'a.b' is renamed 'N'
-        # from a.b import N         either gets symbol N out of a.b, or imports a.b.N as N
-        # from a.b import c as N
-
-        if imp.names[0].asname:
-            # replace with name out of 'from S import N as A'
-            key[0:1] = imp.names[0].name.split('.')
-
-        segments = module_name.split('.')
-
-        if isinstance(imp, ast.ImportFrom):
-            segments = segments[imp.level:]
-
-        common_prefix = _common_prefix_len(segments, key)
-        _debug(f"{module_name=} {common_prefix=} {key=}")
-        key = key[common_prefix:]
-
-        if not (spec := importlib.util.find_spec(module_name)) or not spec.origin:
-            return None
-
-        import_file = Path(spec.origin)
-        module = parse_file(import_file)
-        file = import_file
-
-        # FIXME catch and deal with inclusion loops?
 
     if path:
         summary = _summarize(path)
