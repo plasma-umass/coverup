@@ -193,6 +193,9 @@ def parse_args():
 
     ap.add_argument('--errors-only', action="store_true", help='show errors only')
 
+    ap.add_argument('--check-c-p', action="store_true",
+                    help='check for C prompts that are equivalent to a C prompt')
+
     ap.add_argument('logs', type=Path, nargs='+', help='log file(s) to process')
     return ap.parse_args()
 
@@ -201,12 +204,9 @@ if __name__ == "__main__":
     args = parse_args()
 
     for log in args.logs:
-        for seg, seq in get_sequences(log.read_text()):
+        for seg, seq in get_sequences(log.read_text(), check_c_p_equivalence=args.check_c_p):
             if args.errors_only and seq[-1][0] == 'G':
                 continue
-
-            if seq[-1][0] == '*':
-                seq = seq[:-1]
 
             print("=======", seg, ''.join(ev[0] for ev in seq))
 
