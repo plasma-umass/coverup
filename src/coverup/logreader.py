@@ -7,7 +7,7 @@ TERMINAL_EVENTS=('G', 'M', 'T', '-', '*')
 
 
 def is_same_as_P(content, begin, end):
-    """This attempts to detect 'C' (context) prompts that were only issued as context prompts
+    """Attempts to detect 'C' (context) prompts that were only issued as context prompts
        because their 'def' executed when their module was loaded to 'P' (initial) prompts,
        which is what they should have been."""
 
@@ -82,6 +82,8 @@ def is_same_as_P(content, begin, end):
 
 
 def parse_log(log_content: str, check_c_p_equivalence=False):
+    """Parses a log file's contents, yielding events."""
+
     for m in re.finditer('---- (?:(\S+) )?([\S+ ]+) ----\n\n?(.*?)(?=\n---- |\Z)',
                          log_content, re.DOTALL):
         timestamp, event, content = m.groups()
