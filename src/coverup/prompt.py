@@ -161,7 +161,7 @@ Use the get_info tool function as necessary.
         """
         {
             "name": "get_info",
-            "description": "Returns information about a function, class or method.",
+            "description": "Returns information about a symbol.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -178,9 +178,9 @@ Use the get_info tool function as necessary.
         from .codeinfo import get_info, parse_file
 
         if info := get_info(parse_file(ctx.path), name):
-            return info
+            return "\"...\" below indicates omitted code.\n\n" + info
 
-        return "Unable to obtain information."
+        return f"Unable to obtain information on {name}."
 
 
     def get_functions(self) -> T.List[T.Callable]:
