@@ -5,7 +5,6 @@ import typing as T
 import importlib.util
 
 _debug = lambda x: None
-#_debug = print
 
 
 # TODO use 'ast' alternative that retains comments?
@@ -65,9 +64,21 @@ def _load_module(module_name: str) -> ast.Module | None:
     return None
 
 
+def _auto_stack(func):
+    """Decorator that adds a stack of the first argument of the function being called."""
+    def helper(*args):
+        helper.stack.append(args[0])
+        _debug(f"{'.'.join(getattr(n, 'name', '?') for n in helper.stack)}")
+        retval = func(*args)
+        helper.stack.pop()
+        return retval
+    helper.stack = []
+    return helper
+
+
 def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[Path] = None) -> T.List[ast.AST]:
-    """Looks for a class or function by name, returning the "path" of ast.ClassDef modules crossed
-       to find it.  If an `import` is found for the sought, it is returned instead.
+    """Looks for a symbol's definition by its name, returning the "path" of ast.ClassDef, ast.Import, etc.,
+       crossed to find it.
     """
     _debug(f"looking up {name} in {module.path}")
 
@@ -81,16 +92,28 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
         imp.names = [alias]
         return [imp, mod]
 
+    @_auto_stack
     def find_name(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
+        _debug(f"_find_name {name} in {ast.dump(node)}")
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.name == name[0]:
                 if len(name) == 1:
                     return [node]
 
                 if isinstance(node, ast.ClassDef):
-                    for c in ast.iter_child_nodes(node):
+                    for c in node.body:
+                        _debug(f"{node.name} checking {ast.dump(c)}")
                         if (path := find_name(c, name[1:])):
                             return [node, *path]
+
+                    for base in node.bases:
+                        if (len(find_name.stack) > 1 and
+                            isinstance(context := find_name.stack[-2], ast.ClassDef)):
+                            if (base_path := find_name(context, [context.name, base.id, *name[1:]])):
+                                return base_path[1:]
+
+                        if (path := find_name(module, [base.id, *name[1:]])):
+                            return path
 
             return []
 
@@ -99,7 +122,6 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
             return [node] if len(name) == 1 else []
 
         if isinstance(node, ast.Import):
-            _debug(f"{ast.dump(node)=}")
             # import N
             # import N.x                imports N and N.x
             # import a.b as N           'a.b' is renamed 'N'
@@ -116,11 +138,10 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
                     if path := _find_name_path(mod, name[common_prefix:], paths_seen=paths_seen):
                         return transition(node, alias, mod) + path
 
-        if isinstance(node, ast.ImportFrom):
+        elif isinstance(node, ast.ImportFrom):
             # from a.b import N         either gets symbol N out of a.b, or imports a.b.N as N
             # from a.b import c as N
 
-            _debug(f"{ast.dump(node)=}")
             for alias in node.names:
                 if (alias.asname if alias.asname else alias.name) == name[0]:
                     modname = _resolve_from_import(module.path, node)
@@ -134,9 +155,10 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
                        (path := _find_name_path(mod, name[1:], paths_seen=paths_seen)):
                         return transition(node, alias, mod) + path
 
-        for c in ast.iter_child_nodes(node):
-            if (path := find_name(c, name)):
-                return path
+        elif not isinstance(node, (ast.Expression, ast.Expr, ast.Name)):
+            for c in ast.iter_child_nodes(node):
+                if (path := find_name(c, name)):
+                    return path
 
         return []
 

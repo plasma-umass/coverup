@@ -6,6 +6,9 @@ import pytest
 import coverup.codeinfo as codeinfo
 
 
+codeinfo._debug = print     # enables debugging
+
+
 @pytest.fixture
 def importlib_cleanup():
     import importlib
@@ -145,7 +148,6 @@ def test_get_info_class(import_fixture):
 
     tree = codeinfo.parse_file(code)
 
-    print(codeinfo.get_info(tree, 'C'))
     assert codeinfo.get_info(tree, 'C') == textwrap.dedent("""\
         ```python
         class C:
@@ -218,6 +220,113 @@ def test_get_info_class(import_fixture):
 
     assert codeinfo.get_info(tree, 'C.B.bar') == None
     assert codeinfo.get_info(tree, 'foo') == None
+
+
+def test_get_info_method_from_parent(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        class A:
+            def a(self):
+                return 42
+
+        class B(A):
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'B.a') == textwrap.dedent("""\
+        ```python
+        class A:
+            ...
+
+            def a(self):
+                return 42
+        ```"""
+    )
+
+
+def test_get_info_method_from_parent_imported(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        from bar import A
+
+        class B(A):
+            pass
+        """
+    ))
+
+    (tmp_path / "bar.py").write_text(textwrap.dedent("""\
+        class A:
+            def a(self):
+                return 42
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'B.a') == textwrap.dedent("""\
+        in foo.py:
+        ```python
+        from bar import A
+        ```
+
+        in bar.py:
+        ```python
+        class A:
+            ...
+
+            def a(self):
+                return 42
+        ```"""
+    )
+
+
+def test_get_info_method_from_parent_imported_in_class(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        class A:
+            from bar import B
+
+            class C(B):
+                pass
+
+            class D(C):
+                pass
+        """
+    ))
+
+    (tmp_path / "bar.py").write_text(textwrap.dedent("""\
+        class B:
+            def b(self):
+                return 42
+        """
+    ))
+
+    # FIXME this would be better if it showed class C(B) and class D(C)
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'A.D.b') == textwrap.dedent("""\
+        in foo.py:
+        ```python
+        class A:
+            ...
+            from bar import B
+        ```
+
+        in bar.py:
+        ```python
+        class B:
+            ...
+
+            def b(self):
+                return 42
+        ```"""
+    )
 
 
 def test_get_info_assignment(import_fixture):
@@ -590,6 +699,45 @@ def test_get_info_from_import_relative(import_fixture):
         ```python
         class Baz:
             answer = 42
+        ```'''
+    )
+
+
+@pytest.mark.xfail
+def test_get_info_import_in_function(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+
+        def something():
+            from foo import Foo
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+        """
+    ))
+
+    # XXX pass context here
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'Foo') == textwrap.dedent('''\
+        in code.py:
+        ```python
+        def something():
+            ...
+            from foo import Foo
+            ...
+        ```
+
+        in foo/__init__.py:
+        ```python
+        class Foo:
+            pass
         ```'''
     )
 
