@@ -248,6 +248,36 @@ def test_get_info_method_from_parent(import_fixture):
     )
 
 
+def test_get_info_method_from_parent_is_attribute(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        class A:
+            class B:
+                def a(self):
+                    return 42
+
+        class C(A.B):
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'C.a') == textwrap.dedent("""\
+        ```python
+        class A:
+            ...
+
+            class B:
+                ...
+
+                def a(self):
+                    return 42
+        ```"""
+    )
+
+
 def test_get_info_method_from_parent_parent_missing(import_fixture):
     tmp_path = import_fixture
 
@@ -1020,3 +1050,31 @@ def test_get_global_imports():
     ]
 
 
+def test_get_info_module(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        import bar
+        """
+    ))
+    (tmp_path / "bar.py").write_text(textwrap.dedent("""\
+        answer = 42
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'bar') == None
+
+
+def test_get_info_frozen_module(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'os.path.join') == None

@@ -55,7 +55,7 @@ def _resolve_from_import(file: Path, imp: ast.ImportFrom) -> str:
 
 def _load_module(module_name: str) -> ast.Module | None:
     try:
-        if (spec := importlib.util.find_spec(module_name)) and spec.origin:
+        if (spec := importlib.util.find_spec(module_name)) and spec.origin and spec.origin != 'frozen':
             return parse_file(Path(spec.origin))
 
     except ModuleNotFoundError:
@@ -68,7 +68,7 @@ def _auto_stack(func):
     """Decorator that adds a stack of the first argument of the function being called."""
     def helper(*args):
         helper.stack.append(args[0])
-        _debug(f"{'.'.join(getattr(n, 'name', '?') for n in helper.stack)}")
+        _debug(f"{'.'.join((n.name if getattr(n, 'name', None) else '?') for n in helper.stack)}")
         retval = func(*args)
         helper.stack.pop()
         return retval
@@ -124,6 +124,7 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
        crossed to find it.
     """
     if not module: return None
+    if not name: return None    # TODO return module?
 
     _debug(f"looking up {name} in {module.path}")
 
@@ -146,12 +147,13 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
                             return [node, *path]
 
                     for base in node.bases:
+                        base_name = ast.unparse(base).split('.')
                         if (len(find_name.stack) > 1 and
                             isinstance(context := find_name.stack[-2], ast.ClassDef)):
-                            if (base_path := find_name(context, [context.name, base.id, *name[1:]])):
+                            if (base_path := find_name(context, [context.name, *base_name, *name[1:]])):
                                 return base_path[1:]
 
-                        if (path := find_name(module, [base.id, *name[1:]])):
+                        if (path := find_name(module, [*base_name, *name[1:]])):
                             return path
 
                 elif isinstance(module, (ast.Function, ast.AsyncFunction)):
@@ -170,6 +172,8 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             if (path := _handle_import(module, node, name, paths_seen=paths_seen)):
                 return path
+
+            return []
 
         elif not isinstance(node, (ast.Expression, ast.Expr, ast.Name)):
             for c in ast.iter_child_nodes(node):
