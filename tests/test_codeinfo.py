@@ -267,13 +267,9 @@ def test_get_info_method_from_parent_imported(import_fixture):
         """
     ))
 
+    # TODO it would be better if it showed class B(A)
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'B.a') == textwrap.dedent("""\
-        in foo.py:
-        ```python
-        from bar import A
-        ```
-
         in bar.py:
         ```python
         class A:
@@ -394,11 +390,6 @@ def test_get_info_import(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
-        in code.py:
-        ```python
-        import foo
-        ```
-
         in foo/__init__.py:
         ```python
         class Foo:
@@ -433,11 +424,6 @@ def test_get_info_import_submodule(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
-        in code.py:
-        ```python
-        import foo.bar
-        ```
-
         in foo/__init__.py:
         ```python
         class Foo:
@@ -446,11 +432,6 @@ def test_get_info_import_submodule(import_fixture):
     )
 
     assert codeinfo.get_info(tree, 'foo.bar.Bar') == textwrap.dedent('''\
-        in code.py:
-        ```python
-        import foo.bar
-        ```
-
         in foo/bar.py:
         ```python
         class Bar:
@@ -519,11 +500,6 @@ def test_get_info_from_import_symbol_exists(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'bar.Bar') == textwrap.dedent('''\
-        in code.py:
-        ```python
-        from foo import bar
-        ```
-
         in foo/__init__.py:
         ```python
         class bar:
@@ -603,11 +579,6 @@ def test_get_info_from_import_symbol_doesnt_exist(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'bar.Bar') == textwrap.dedent('''\
-        in code.py:
-        ```python
-        from foo import bar
-        ```
-
         in foo/bar.py:
         ```python
         class Bar:
@@ -703,8 +674,7 @@ def test_get_info_from_import_relative(import_fixture):
     )
 
 
-@pytest.mark.xfail
-def test_get_info_import_in_function(import_fixture):
+def test_get_info_import_in_excerpt_function(import_fixture):
     tmp_path = import_fixture
 
     code = tmp_path / "code.py"
@@ -712,7 +682,9 @@ def test_get_info_import_in_function(import_fixture):
         import os
 
         def something():
-            from foo import Foo
+            def something_else():
+                from foo import Foo
+                Foo()
         """
     ))
 
@@ -723,18 +695,40 @@ def test_get_info_import_in_function(import_fixture):
         """
     ))
 
-    # XXX pass context here
     tree = codeinfo.parse_file(code)
-    assert codeinfo.get_info(tree, 'Foo') == textwrap.dedent('''\
-        in code.py:
-        ```python
-        def something():
-            ...
-            from foo import Foo
-            ...
-        ```
-
+    assert codeinfo.get_info(tree, 'Foo', line=3) == textwrap.dedent('''\
         in foo/__init__.py:
+        ```python
+        class Foo:
+            pass
+        ```'''
+    )
+
+
+def test_get_info_import_in_excerpt_class(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import os
+
+        class X:
+            from foo import Foo
+
+            def __init__(self, x: Foo):
+                self.x = x
+        """
+    ))
+
+    (tmp_path / "foo.py").write_text(textwrap.dedent("""\
+        class Foo:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'Foo', line=3) == textwrap.dedent('''\
+        in foo.py:
         ```python
         class Foo:
             pass
@@ -847,11 +841,6 @@ def test_get_info_import_and_class_in_block(import_fixture):
     tree = codeinfo.parse_file(code)
 
     assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent('''\
-        in code.py:
-        ```python
-        import foo
-        ```
-
         in foo/__init__.py:
         ```python
         class Foo:

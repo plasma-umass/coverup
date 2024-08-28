@@ -177,7 +177,7 @@ Use the get_info tool function as necessary.
 
         from .codeinfo import get_info, parse_file
 
-        if info := get_info(parse_file(ctx.path), name):
+        if info := get_info(parse_file(ctx.path), name, line=ctx.begin):
             return "\"...\" below indicates omitted code.\n\n" + info
 
         return f"Unable to obtain information on {name}."
