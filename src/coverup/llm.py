@@ -5,6 +5,7 @@ import asyncio
 import warnings
 import textwrap
 import json
+import traceback
 
 with warnings.catch_warnings():
     # ignore pydantic warnings https://github.com/BerriAI/litellm/issues/2832
@@ -291,6 +292,12 @@ class Chatter:
         try:
             return str(function['function'](ctx=ctx, **args))
         except Exception as e:
+            self._log_msg(ctx, f"""\
+Error executing function "{tool_call.function.name}": {e}
+args:{args}
+
+{traceback.format_exc()}
+""")
             return f'Error executing function: {e}'
 
 
