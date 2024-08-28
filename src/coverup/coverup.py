@@ -340,7 +340,7 @@ class Progress:
         self._bar = tqdm.tqdm(total=total, initial=initial)
 
         self._postfix = OrderedDict()
-        for p in ['usage', *PROGRESS_COUNTERS]:
+        for p in [*PROGRESS_COUNTERS, 'cost']:
             self._postfix[p] = ''  # to establish order
 
         self._bar.set_postfix(ordered_dict=self._postfix)
