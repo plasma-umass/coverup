@@ -123,9 +123,10 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
     """Looks for a symbol's definition by its name, returning the "path" of ast.ClassDef, ast.Import, etc.,
        crossed to find it.
     """
+    if not module: return None
+
     _debug(f"looking up {name} in {module.path}")
 
-    if not module: return None
     if not paths_seen: paths_seen = set()
     if module.path in paths_seen: return None
     paths_seen.add(module.path)

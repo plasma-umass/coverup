@@ -248,6 +248,22 @@ def test_get_info_method_from_parent(import_fixture):
     )
 
 
+def test_get_info_method_from_parent_parent_missing(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        from doesnotexist import A
+
+        class B(A):
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'B.a') == None
+
+
 def test_get_info_method_from_parent_imported(import_fixture):
     tmp_path = import_fixture
 
