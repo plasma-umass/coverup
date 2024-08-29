@@ -213,7 +213,7 @@ Write as little top-level code as possible, and in particular do not include any
 calling into pytest.main or the test itself.
 Respond ONLY with the Python code enclosed in backticks, without any explanation.
 ```python
-{segment.get_excerpt(tag_lines=False)}
+{segment.get_excerpt(tag_lines=False, include_imports=False)}
 ```
 """)
         ]

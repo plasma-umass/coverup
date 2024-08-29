@@ -37,13 +37,14 @@ class CodeSegment:
     def __str__(self) -> str:
         return self.identify()
 
-    def get_excerpt(self, tag_lines=True):
+    def get_excerpt(self, tag_lines=True, include_imports=True):
         excerpt = []
         with open(self.filename, "r") as src:
             code = src.readlines()
 
-            for imp in self.imports:
-                excerpt.extend([f"{'':10}  {imp}\n"])
+            if include_imports:
+                for imp in self.imports:
+                    excerpt.extend([f"{'':10}  {imp}\n"])
 
             for b, e in self.context:
                 for i in range(b, e):
