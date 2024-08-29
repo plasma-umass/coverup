@@ -1140,3 +1140,40 @@ def test_get_info_non_py(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'termios.tcgetattr') == None
+
+
+def test_get_info_import_star(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import foo
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        import sys
+
+        if sys.platform == 'win32':
+            from .win32 import *
+        else:
+            from .unix import *
+        """
+    ))
+    (tmp_path / "foo" / "unix.py").write_text(textwrap.dedent("""\
+        answer = 'eunuchs'
+        """
+    ))
+    (tmp_path / "foo" / "win32.py").write_text(textwrap.dedent("""\
+        answer = '$$$$'
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'foo.answer') == textwrap.dedent("""\
+        in foo/win32.py:
+        ```python
+        answer = '$$$$'
+        ```"""
+    )

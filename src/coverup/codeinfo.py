@@ -70,7 +70,7 @@ def _auto_stack(func):
     """Decorator that adds a stack of the first argument of the function being called."""
     def helper(*args):
         helper.stack.append(args[0])
-        _debug(f"{'.'.join((n.name if getattr(n, 'name', None) else '?') for n in helper.stack)}")
+        _debug(f"{'.'.join((n.name if getattr(n, 'name', None) else '<' + type(n).__name__ + '>') for n in helper.stack)}")
         retval = func(*args)
         helper.stack.pop()
         return retval
@@ -108,7 +108,13 @@ def _handle_import(module: ast.Module, node: ast.Import | ast.ImportFrom, name: 
         # from a.b import c as N
 
         for alias in node.names:
-            if (alias.asname if alias.asname else alias.name) == name[0]:
+            if alias.name == '*':
+                modname = _resolve_from_import(module.path, node)
+                if (mod := _load_module(modname)) and \
+                   (path := _find_name_path(mod, name, paths_seen=paths_seen)):
+                    return transition(node, alias, mod) + path
+
+            elif (alias.asname if alias.asname else alias.name) == name[0]:
                 modname = _resolve_from_import(module.path, node)
                 _debug(f"looking for symbol ({[alias.name, *name[1:]]} in {modname})")
                 mod = _load_module(modname)
@@ -177,7 +183,8 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
 
             return []
 
-        elif not isinstance(node, (ast.Expression, ast.Expr, ast.Name)):
+        # not isinstance(...) is just to trim down unnecessary work
+        elif not isinstance(node, (ast.Expression, ast.Expr, ast.Name, ast.Attribute, ast.Compare)):
             for c in ast.iter_child_nodes(node):
                 if (path := find_name(c, name)):
                     return path
