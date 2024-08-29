@@ -55,7 +55,8 @@ def _resolve_from_import(file: Path, imp: ast.ImportFrom) -> str:
 
 def _load_module(module_name: str) -> ast.Module | None:
     try:
-        if (spec := importlib.util.find_spec(module_name)) and spec.origin and spec.origin != 'frozen':
+        if ((spec := importlib.util.find_spec(module_name))
+            and spec.origin and spec.origin not in ('frozen', 'built-in')):
             return parse_file(Path(spec.origin))
 
     except ModuleNotFoundError:
@@ -124,7 +125,7 @@ def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[
        crossed to find it.
     """
     if not module: return None
-    if not name: return None    # TODO return module?
+    if not name: return [module]
 
     _debug(f"looking up {name} in {module.path}")
 
@@ -196,6 +197,12 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
                 (isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef)) and \
                  c.name not in ("__init__", "__new__"))):
                 # Leave "__init__" unmodified as it's likely to contain important member information
+                c.body = [ast.Expr(ast.Constant(value=ast.literal_eval("...")))]
+
+    elif isinstance(path[-1], ast.Module):
+        path[-1] = copy.deepcopy(path[-1])
+        for c in ast.iter_child_nodes(path[-1]):
+            if isinstance(c, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                 c.body = [ast.Expr(ast.Constant(value=ast.literal_eval("...")))]
 
     # now Class objects
@@ -334,10 +341,12 @@ def get_info(module: ast.Module, name: str, *, line: int = 0) -> T.Optional[str]
 
         if any(isinstance(n, ast.Module) for n in path):
             result = ""
-            for i in range(len(path)):
-                if isinstance(path[i], ast.Module):
-                    mod, content = path[i:i+2]
-                    imports = get_global_imports(mod, content)
+            for i, mod in enumerate(path):
+                if isinstance(mod, ast.Module):
+                    content = path[i+1] if i < len(path)-1 else mod
+                    # When a module itself is the content, all imports are retained,
+                    # so there's no need to look for them.
+                    imports = get_global_imports(mod, content) if mod != content else []
                     if result: result += "\n\n"
                     result += f"""\
 in {_package_path(mod.path)}:

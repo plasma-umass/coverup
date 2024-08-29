@@ -1059,22 +1059,62 @@ def test_get_info_module(import_fixture):
         """
     ))
     (tmp_path / "bar.py").write_text(textwrap.dedent("""\
+        try:
+            import os
+        except ImportError:
+            import os2
+
+        class A:
+            def __init__(self):
+                pass
+
+            class B:
+                pass
+
+        def foo(a, b):
+            return a+b
+
         answer = 42
+
+        if __name__ == '__main__':
+            import sys
+            sys.exit(0)
         """
     ))
 
     tree = codeinfo.parse_file(code)
-    assert codeinfo.get_info(tree, 'bar') == None
+    assert codeinfo.get_info(tree, 'bar') == textwrap.dedent("""\
+        in bar.py:
+        ```python
+        try:
+            import os
+        except ImportError:
+            import os2
+
+        class A:
+            ...
+
+        def foo(a, b):
+            ...
+        answer = 42
+        if __name__ == '__main__':
+            import sys
+            sys.exit(0)
+        ```"""
+    )
 
 
-def test_get_info_frozen_module(import_fixture):
+def test_get_info_frozen_or_builtin_module(import_fixture):
     tmp_path = import_fixture
 
     code = tmp_path / "foo.py"
     code.write_text(textwrap.dedent("""\
         import os
+        import sys
         """
     ))
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'os.path.join') == None
+
+    assert codeinfo.get_info(tree, 'sys.path') == None
