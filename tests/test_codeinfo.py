@@ -1129,3 +1129,14 @@ def test_get_info_builtin_module(import_fixture):
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'sys.path') == None
+
+
+def test_get_info_non_py(import_fixture):
+    """On Python 3.10 on Linux, this module maps to a .so, not a Python file"""
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text("")
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'termios.tcgetattr') == None

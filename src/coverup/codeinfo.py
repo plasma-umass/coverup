@@ -56,7 +56,8 @@ def _resolve_from_import(file: Path, imp: ast.ImportFrom) -> str:
 def _load_module(module_name: str) -> ast.Module | None:
     try:
         if ((spec := importlib.util.find_spec(module_name))
-            and spec.origin and spec.origin not in ('frozen', 'built-in')):
+            and spec.origin and spec.origin.endswith('.py')):
+            _debug(f"Loading {spec.origin}")
             return parse_file(Path(spec.origin))
 
     except ModuleNotFoundError:
