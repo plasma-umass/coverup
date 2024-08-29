@@ -4,6 +4,7 @@ from pathlib import Path
 import typing as T
 import pytest
 import coverup.codeinfo as codeinfo
+import sys
 
 
 codeinfo._debug = print     # enables debugging
@@ -12,7 +13,6 @@ codeinfo._debug = print     # enables debugging
 @pytest.fixture
 def importlib_cleanup():
     import importlib
-    import sys
 
     previously_loaded = {m for m in sys.modules}
 
@@ -1104,17 +1104,28 @@ def test_get_info_module(import_fixture):
     )
 
 
-def test_get_info_frozen_or_builtin_module(import_fixture):
+@pytest.mark.skipif(sys.version_info[0:2] < (3,11), reason="not a frozen module then")
+def test_get_info_frozen_module(import_fixture):
     tmp_path = import_fixture
 
     code = tmp_path / "foo.py"
     code.write_text(textwrap.dedent("""\
         import os
-        import sys
         """
     ))
 
     tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'os.path.join') == None
 
+
+def test_get_info_builtin_module(import_fixture):
+    tmp_path = import_fixture
+
+    code = tmp_path / "foo.py"
+    code.write_text(textwrap.dedent("""\
+        import sys
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
     assert codeinfo.get_info(tree, 'sys.path') == None
