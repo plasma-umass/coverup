@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 
-TERMINAL_EVENTS=('G', 'M', 'T', '-', '*')
+TERMINAL_EVENTS=('G', 'M', 'T', '-', '*', 'f', 'u')
 
 
 def is_same_as_P(content, begin, end):
@@ -107,12 +107,16 @@ def parse_log(log_content: str, check_c_p_equivalence=False):
                 return 'C'
             elif content.startswith("Executing the test yields an error"):
                 return 'F'
+            elif content.startswith("Test failed"):
+                return 'f'
             elif content.startswith("Executing the test along with"): # side effect
                 return 'S'
             elif content.startswith("```python"): # response
                 return 'R'
             elif content.startswith("This test still lacks coverage"):
                 return 'U'
+            elif content.startswith("Test doesn't improve coverage"):
+                return 'u'
             elif content.startswith("Saved as"): # success
                 return 'G'
             elif content.startswith("Missing modules"):

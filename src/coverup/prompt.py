@@ -27,13 +27,13 @@ class Prompter(abc.ABC):
 
 
     @abc.abstractmethod
-    def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict]:
+    def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict] | None:
         """Returns prompts(s) in response to an error."""
 
 
     @abc.abstractmethod
     def missing_coverage_prompt(self, segment: CodeSegment,
-                                missing_lines: set, missing_branches: set) -> T.List[dict]:
+                                missing_lines: set, missing_branches: set) -> T.List[dict] | None:
         """Returns prompts(s) in response to the suggested test(s) lacking coverage."""
 
 
@@ -218,21 +218,23 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 """)
         ]
 
-    def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict]:
-        return [_message(f"""\
-Executing the test yields an error, shown below.
-Modify the test to correct it; respond only with the complete Python code in backticks.
-
-{error}""")
-        ]
+    def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict] | None:
+        return None
+#        return [_message(f"""\
+#Executing the test yields an error, shown below.
+#Modify the test to correct it; respond only with the complete Python code in backticks.
+#
+#{error}""")
+#        ]
 
     def missing_coverage_prompt(self, segment: CodeSegment,
-                                missing_lines: set, missing_branches: set) -> T.List[dict]:
-        return [_message(f"""\
-The tests still lack coverage.
-Modify to correct that; respond only with the complete Python code in backticks.
-""")
-        ]
+                                missing_lines: set, missing_branches: set) -> T.List[dict] | None:
+        return None
+#        return [_message(f"""\
+#The tests still lack coverage.
+#Modify to correct that; respond only with the complete Python code in backticks.
+#""")
+#        ]
 
 
 class ClaudePrompter(Prompter):

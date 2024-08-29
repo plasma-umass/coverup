@@ -517,7 +517,11 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
 
         except subprocess.CalledProcessError as e:
             state.inc_counter('F')
-            prompts = prompter.error_prompt(seg, clean_error(str(e.stdout, 'UTF-8', errors='ignore')))
+            error = clean_error(str(e.stdout, 'UTF-8', errors='ignore'))
+            if not (prompts := prompter.error_prompt(seg, error)):
+                log_write(seg, "Test failed:\n\n" + error)
+                break
+
             messages.extend(prompts)
             continue
 
@@ -538,7 +542,10 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
 
         if not gained_lines and not gained_branches:
             state.inc_counter('U')
-            prompts = prompter.missing_coverage_prompt(seg, seg.missing_lines, seg.missing_branches)
+            if not (prompts := prompter.missing_coverage_prompt(seg, seg.missing_lines, seg.missing_branches)):
+                log_write(seg, "Test doesn't improve coverage")
+                break
+
             messages.extend(prompts)
             continue
 
