@@ -23,43 +23,67 @@ litellm.drop_params=True
 
 
 # Tier 5 rate limits for models; tuples indicate limit and interval in seconds
-# Extracted from https://platform.openai.com/account/limits on 11/22/23
+# Extracted from https://platform.openai.com/account/limits on 8/30/2024
 MODEL_RATE_LIMITS = {
     'gpt-3.5-turbo': {
-        'token': (1_000_000, 60), 'request': (10_000, 60)
+        'token': (50_000_000, 60), 'request': (10_000, 60)
     },
-    'gpt-3.5-turbo-0301': {
-        'token': (1_000_000, 60), 'request': (10_000, 60)
-    },
-    'gpt-3.5-turbo-0613': {
-        'token': (1_000_000, 60), 'request': (10_000, 60)
+    'gpt-3.5-turbo-0125': {
+        'token': (50_000_000, 60), 'request': (10_000, 60)
     },
     'gpt-3.5-turbo-1106': {
-        'token': (1_000_000, 60), 'request': (10_000, 60)
+        'token': (50_000_000, 60), 'request': (10_000, 60)
     },
-    'gpt-3.5-turbo-16k':  {
-        'token': (1_000_000, 60), 'request': (10_000, 60)
-    },
-    'gpt-3.5-turbo-16k-0613': {
-        'token': (1_000_000, 60), 'request': (10_000, 60)
+    'gpt-3.5-turbo-16k': {
+        'token': (50_000_000, 60), 'request': (10_000, 60)
     },
     'gpt-3.5-turbo-instruct': {
-        'token': (250_000, 60), 'request': (3_000, 60)
+        'token': (90_000, 60), 'request': (3_500, 60)
     },
     'gpt-3.5-turbo-instruct-0914': {
-        'token': (250_000, 60), 'request': (3_000, 60)
+        'token': (90_000, 60), 'request': (3_500, 60)
     },
     'gpt-4': {
-        'token': (300_000, 60), 'request': (10_000, 60)
+        'token': (1_000_000, 60), 'request': (10_000, 60)
     },
     'gpt-4-0314': {
-        'token': (300_000, 60), 'request': (10_000, 60)
+        'token': (1_000_000, 60), 'request': (10_000, 60)
     },
     'gpt-4-0613': {
-        'token': (300_000, 60), 'request': (10_000, 60)
+        'token': (1_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4-32k-0314': {
+        'token': (150_000, 60), 'request': (1_000, 60)
+    },
+    'gpt-4-turbo': {
+        'token': (2_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4-turbo-2024-04-09': {
+        'token': (2_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4-turbo-preview': {
+        'token': (2_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4-0125-preview': {
+        'token': (2_000_000, 60), 'request': (10_000, 60)
     },
     'gpt-4-1106-preview': {
-        'token': (300_000, 60), 'request': (5_000, 60)
+        'token': (2_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4o': {
+        'token': (30_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4o-2024-05-13': {
+        'token': (30_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4o-2024-08-06': {
+        'token': (30_000_000, 60), 'request': (10_000, 60)
+    },
+    'gpt-4o-mini': {
+        'token': (150_000_000, 60), 'request': (30_000, 60)
+    },
+    'gpt-4o-mini-2024-07-18': {
+        'token': (150_000_000, 60), 'request': (30_000, 60)
     }
 }
 
