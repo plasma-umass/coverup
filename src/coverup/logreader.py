@@ -81,21 +81,27 @@ def is_same_as_P(content, begin, end):
     return False
 
 
-def parse_log(log_content: str, check_c_p_equivalence=False):
-    """Parses a log file's contents, yielding events."""
-
+def parse_log_raw(log_content: str):
+    """Yields raw items from a CoverUp log."""
     for m in re.finditer('---- (?:(\S+) )?([\S+ ]+) ----\n\n?(.*?)(?=\n---- |\Z)',
                          log_content, re.DOTALL):
-        timestamp, event, content = m.groups()
+        timestamp, ctx, content = m.groups()
+        yield timestamp, ctx, content
 
-        if event == 'startup':
+
+def parse_log(log_content: str, check_c_p_equivalence=False):
+    """Parses a CoverUp log, categorizing them in different events and extracting information from JSON messages."""
+
+    for timestamp, ctx, content in parse_log_raw(log_content):
+        if ctx == 'startup':
             yield timestamp, 'startup', None, content
             continue
 
-        if not (m := re.match('(\S+):(\d+)-(\d+)', event)):
+        if not (m := re.match('(\S+):(\d+)-(\d+)', ctx)):
             continue
 
         py, begin, end = m.groups()
+        seginfo = (py, int(begin), int(end))
 
         def what(content: str):
             content = content.lstrip()
@@ -129,8 +135,6 @@ def parse_log(log_content: str, check_c_p_equivalence=False):
                 return '*'
 
             return '?'
-
-        seginfo = (py, int(begin), int(end))
 
         if content.startswith("{"):
             j = json.loads(content)
