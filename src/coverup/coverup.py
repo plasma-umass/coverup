@@ -297,6 +297,8 @@ def find_imports(python_code: str) -> T.List[str]:
 
 module_available = dict()
 def missing_imports(modules: T.List[str]) -> T.List[str]:
+    # TODO handle GPT sometimes generating 'from your_module import XYZ', asking us to modify
+
     import importlib.util
 
     for module in modules:
@@ -308,6 +310,8 @@ def missing_imports(modules: T.List[str]) -> T.List[str]:
 
 
 def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool: 
+    global args, module_available
+
     all_ok = True
     for module in modules:
         try:
@@ -317,6 +321,10 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
             module_available[module] = 2    # originally unavailable, but now added
             print(f"Installed module {module}")
             log_write(seg, f"Installed module {module}")
+
+            if args.write_requirements_to:
+                with args.write_requirements_to.open("a") as f:
+                    f.write(f"{module}\n")
         except subprocess.CalledProcessError as e:
             log_write(seg, f"Unable to install module {module}:\n{str(e.stdout, 'UTF-8', errors='ignore')}")
             all_ok = False
@@ -325,8 +333,8 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
 
 
 def get_required_modules() -> T.List[str]:
-    """Returns a list of the modules originally missing (i.e., even if we installed them)"""
-    return [m for m in module_available if module_available[m] != 1]
+    """Returns a list of the modules found missing (and not installed)"""
+    return [m for m in module_available if not module_available[m]]
 
 
 PROGRESS_COUNTERS=['G', 'F', 'U', 'R']  # good, failed, useless, retry
@@ -733,9 +741,7 @@ def main():
             state.set_final_coverage(coverage)
             state.save_checkpoint(args.checkpoint)
 
-        if required := get_required_modules():
-            # Sometimes GPT outputs 'from your_module import XYZ', asking us to modify
-            # FIXME move this to 'state'
+        if not args.install_missing_modules and (required := get_required_modules()):
             print(f"Some modules seem to be missing:  {', '.join(str(m) for m in required)}")
             if args.write_requirements_to:
                 with args.write_requirements_to.open("a") as f:
