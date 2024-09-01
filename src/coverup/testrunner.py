@@ -9,7 +9,8 @@ import os
 from .utils import subprocess_run
 
 
-async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', log_write=None, branch_coverage=True):
+async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='',
+                                log_write=None, isolate_tests=False, branch_coverage=True):
     """Runs a given test and returns the coverage obtained."""
     with tempfile.NamedTemporaryFile(prefix="tmp_test_", suffix='.py', dir=str(tests_dir), mode="w") as t:
         t.write(test)
@@ -20,7 +21,9 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
                 # -qq to cut down on tokens
                 p = await subprocess_run([sys.executable, '-m', 'slipcover',  *(('--branch',) if branch_coverage else ()),
                                           '--json', '--out', j.name,
-                                          '-m', 'pytest', *pytest_args.split(), '-qq', '-x', '--disable-warnings', t.name],
+                                          '-m', 'pytest', *pytest_args.split(),
+                                          *(('--cleanslate',) if isolate_tests else ()),
+                                          '-qq', '-x', '--disable-warnings', t.name],
                                          check=True, timeout=60)
                 if log_write:
                     log_write(str(p.stdout, 'UTF-8', errors='ignore'))
@@ -37,7 +40,8 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='', l
     return cov
 
 
-def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='', trace=None, isolate_tests=False, branch_coverage=True):
+def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='',
+                           trace=None, isolate_tests=False, branch_coverage=True):
     """Runs an entire test suite and returns the coverage obtained."""
 
     with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:

@@ -3,12 +3,43 @@ import subprocess
 import coverup.testrunner as tr
 from pathlib import Path
 import tempfile
+import textwrap
 
 
 @pytest.mark.asyncio
 async def test_measure_test_coverage_exit_1(tmpdir):
     with pytest.raises(subprocess.CalledProcessError) as einfo:
         await tr.measure_test_coverage(test="import os;\ndef test_foo(): os.exit(1)\n", tests_dir=Path(tmpdir))
+
+
+@pytest.mark.asyncio
+async def test_measure_test_coverage_uses_cleanslate(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    (tmp_path / "foo.py").write_text(textwrap.dedent("""\
+        answer = 42
+        """
+    ))
+    test = textwrap.dedent("""\
+        import os
+
+        def test_one():
+            from foo import answer
+            assert answer == 42
+
+        def test_two(monkeypatch):
+            def mock_stat(path):
+                if path == '/':
+                    return os.stat_result((0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+                raise Exception('mocked stat failure')
+
+            monkeypatch.setattr(os, 'stat', mock_stat)
+            from foo import answer      # should fail because of 'stat' if run in isolation
+            assert answer == 42
+        """)
+
+    with pytest.raises(subprocess.CalledProcessError) as einfo:
+        await tr.measure_test_coverage(test=test, tests_dir=tmp_path, isolate_tests=True)
 
 
 @pytest.mark.parametrize("absolute", [True, False])

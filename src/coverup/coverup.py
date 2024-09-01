@@ -514,6 +514,7 @@ async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg:
             pytest_args = (f"--count={args.repeat_tests} " if args.repeat_tests else "") + args.pytest_args
             coverage = await measure_test_coverage(test=last_test, tests_dir=args.tests_dir,
                                                  pytest_args=pytest_args,
+                                                 isolate_tests=args.isolate_tests,
                                                  branch_coverage=args.branch_coverage,
                                                  log_write=lambda msg: log_write(seg, msg))
 
