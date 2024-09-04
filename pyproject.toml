@@ -22,7 +22,7 @@ dependencies = [
     "aiolimiter",
     "tqdm",
     "slipcover>=1.0.13",
-    "pytest-cleanslate>=1.0.5", # 1.0.5 adds reduce "API"
+    "pytest-cleanslate>=1.0.6", # 1.0.6 fixes collection error bug
     "pytest-repeat",
     "litellm>=1.33.1"
 ]
