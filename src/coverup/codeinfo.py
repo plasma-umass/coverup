@@ -274,6 +274,12 @@ def get_global_imports(module: ast.Module, node: ast.AST) -> T.List[ast.Import |
                 if alias_name in names:
                     if not new_imp:
                         new_imp = copy.copy(imp)
+                        if isinstance(new_imp, ast.ImportFrom):
+                            # make all imports absolute, as GPT, seeing relative imports in
+                            # modules, may want to repeat them in tests as well
+                            new_imp.module = _resolve_from_import(module.path, new_imp)
+                            new_imp.level = 0
+
                         new_imp.names = []
                         imports.append(new_imp)
                     new_imp.names.append(alias)

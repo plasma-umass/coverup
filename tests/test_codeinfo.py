@@ -1012,8 +1012,46 @@ def test_get_info_includes_imports(import_fixture):
     )
 
 
-def test_get_global_imports():
-    code = textwrap.dedent("""\
+def test_get_info_included_imports_always_absolute(import_fixture):
+    tmp_path = import_fixture
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
+        import foo
+        """
+    ))
+
+    (tmp_path / "foo").mkdir()
+    (tmp_path / "foo" / "__init__.py").write_text(textwrap.dedent("""\
+        import sys
+        from .bar import Bar
+
+        class Foo(Bar):
+            pass
+        """
+    ))
+
+    (tmp_path / "foo" / "bar.py").write_text(textwrap.dedent("""\
+        class Bar:
+            pass
+        """
+    ))
+
+    tree = codeinfo.parse_file(code)
+    assert codeinfo.get_info(tree, 'foo.Foo') == textwrap.dedent("""\
+        in foo/__init__.py:
+        ```python
+        from foo.bar import Bar
+
+        class Foo(Bar):
+            pass
+        ```"""
+    )
+
+
+def test_get_global_imports(import_fixture):
+    tmp_path = import_fixture
+    code = tmp_path / "code.py"
+    code.write_text(textwrap.dedent("""\
         import a, b
         from c import d as e
         import os
@@ -1029,7 +1067,7 @@ def test_get_global_imports():
             def f():
                 if os.path.exists("foo"):
                     sha1(a.x, b.x, e.x)
-    """)
+        """))
 
     print(code)
 
@@ -1038,7 +1076,7 @@ def test_get_global_imports():
             if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name:
                 return n
 
-    tree = ast.parse(code)
+    tree = codeinfo.parse_file(code)
 #    print(ast.dump(tree, indent=2))
 
     f = find_node(tree, 'f')

@@ -4,27 +4,6 @@ import textwrap
 import json
 
 
-class mockfs:
-    """Mocks the built-in open() function"""
-
-    def __init__(self, files: dict):
-        self.files = files
-
-    def __enter__(self):
-        import unittest.mock as mock
-
-        def _open(filename, mode="r"):
-            if filename not in self.files: raise FileNotFoundError(filename)
-            return mock.mock_open(read_data=self.files[filename]).return_value
-
-        self.mock = mock.patch('builtins.open', new=_open)
-        self.mock.__enter__()
-        return self
-
-    def __exit__(self, *args):
-        self.mock.__exit__(*args)
-
-
 somecode_py = textwrap.dedent("""\
     # Sample Python code used to create some tests.
     import os
@@ -92,90 +71,98 @@ somecode_json = """\
 """
 
 
-def test_large_limit_whole_class():
+def test_large_limit_whole_class(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "somecode.py").write_text(somecode_py)
+
     coverage = json.loads(somecode_json)
+    segs = segment.get_missing_coverage(coverage, line_limit=100)
 
-    with mockfs({"tests/somecode.py": somecode_py}):
-        segs = segment.get_missing_coverage(coverage, line_limit=100)
+    assert ['Foo', 'func'] == [seg.name for seg in segs]
+    assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
+    assert all(seg.begin < seg.end for seg in segs)
 
-        assert ['Foo', 'func'] == [seg.name for seg in segs]
-        assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
-        assert all(seg.begin < seg.end for seg in segs)
+    assert textwrap.dedent(segs[0].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
+        import os
+        class Foo:
+            '''docstring...'''
 
-        assert textwrap.dedent(segs[0].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
-            import os
-            class Foo:
-                '''docstring...'''
+            @staticmethod
+            def foo():
+                return os.path.exists('here')
 
-                @staticmethod
-                def foo():
-                    return os.path.exists('here')
+            def __init__(self):
+                '''initializes...'''
+                self._foo = 0
 
-                def __init__(self):
-                    '''initializes...'''
-                    self._foo = 0
+            x = 0
+            if x != 0:
+                y = 2
 
-                x = 0
-                if x != 0:
-                    y = 2
+            class Bar:
+                z = 10
 
-                class Bar:
-                    z = 10
-
-                def bar():
-                    '''docstring'''
-                    class Baz:
-                        assert False
-
-                    def baz():
-                        pass
-            """)
-
-        assert textwrap.dedent(segs[1].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
-            def func(x):
+            def bar():
                 '''docstring'''
-                if x > 0:
-                    return 42**42
-            """)
+                class Baz:
+                    assert False
 
-        # FIXME check executed_lines, missing_lines, ..., interesting_lines
+                def baz():
+                    pass
+        """)
+
+    assert textwrap.dedent(segs[1].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
+        def func(x):
+            '''docstring'''
+            if x > 0:
+                return 42**42
+        """)
+
+    # FIXME check executed_lines, missing_lines, ..., interesting_lines
 
 
-def test_small_limit():
+def test_small_limit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "somecode.py").write_text(somecode_py)
+
     coverage = json.loads(somecode_json)
+    segs = segment.get_missing_coverage(coverage, line_limit=3)
 
-    with mockfs({"tests/somecode.py": somecode_py}):
-        segs = segment.get_missing_coverage(coverage, line_limit=3)
-
-        # "Bar" omitted because executed
-        assert ['foo', '__init__', 'bar', 'func'] == [seg.name for seg in segs]
-        assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
-        assert all(seg.begin < seg.end for seg in segs)
+    # "Bar" omitted because executed
+    assert ['foo', '__init__', 'bar', 'func'] == [seg.name for seg in segs]
+    assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
+    assert all(seg.begin < seg.end for seg in segs)
 
 
-        assert textwrap.dedent(segs[0].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
-            import os
-            class Foo:
-                @staticmethod
-                def foo():
-                    return os.path.exists('here')
-            """)
+    assert textwrap.dedent(segs[0].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
+        import os
+        class Foo:
+            @staticmethod
+            def foo():
+                return os.path.exists('here')
+        """)
 
-        assert textwrap.dedent(segs[2].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
-            class Foo:
-                def bar():
-                    '''docstring'''
-                    class Baz:
-                        assert False
+    assert textwrap.dedent(segs[2].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
+        class Foo:
+            def bar():
+                '''docstring'''
+                class Baz:
+                    assert False
 
-                    def baz():
-                        pass
-            """)
+                def baz():
+                    pass
+        """)
 
-        # FIXME check executed_lines, missing_lines, ..., interesting_lines
+    # FIXME check executed_lines, missing_lines, ..., interesting_lines
 
 
-def test_all_missing_not_loaded():
+def test_all_missing_not_loaded(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "somecode.py").write_text(somecode_py)
+
     neverloaded_json = """\
         {
             "files": {
@@ -195,30 +182,29 @@ def test_all_missing_not_loaded():
         }"""
 
     coverage = json.loads(neverloaded_json)
+    segs = segment.get_missing_coverage(coverage, line_limit=2)
 
-    with mockfs({"tests/somecode.py": somecode_py}):
-        segs = segment.get_missing_coverage(coverage, line_limit=2)
+    assert ['foo', '__init__', 'Bar', 'bar', 'func'] == [seg.name for seg in segs]
+    assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
+    assert all(seg.begin < seg.end for seg in segs)
 
-        assert ['foo', '__init__', 'Bar', 'bar', 'func'] == [seg.name for seg in segs]
-        assert all([Path(seg.filename).name == 'somecode.py' for seg in segs])
-        assert all(seg.begin < seg.end for seg in segs)
+    assert textwrap.dedent(segs[3].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
+        class Foo:
+            def bar():
+                '''docstring'''
+                class Baz:
+                    assert False
 
-        assert textwrap.dedent(segs[3].get_excerpt(tag_lines=False)) == textwrap.dedent("""\
-            class Foo:
-                def bar():
-                    '''docstring'''
-                    class Baz:
-                        assert False
+                def baz():
+                    pass
+        """)
 
-                    def baz():
-                        pass
-            """)
-
-        # FIXME check executed_lines, missing_lines, ..., interesting_lines
+    # FIXME check executed_lines, missing_lines, ..., interesting_lines
 
 
-def test_only_branch_missing():
-    code_py = textwrap.dedent("""\
+def test_only_branch_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "code.py").write_text(textwrap.dedent("""\
         class Foo:
             class Bar:
                 def __init__(self, x):
@@ -227,7 +213,7 @@ def test_only_branch_missing():
                         self.x = x
                     self.y = 0
 
-        """)
+        """))
 
     code_json = """\
         {
@@ -249,19 +235,18 @@ def test_only_branch_missing():
         }"""
 
     coverage = json.loads(code_json)
-    with mockfs({"code.py": code_py}):
-        segs = segment.get_missing_coverage(coverage, line_limit=4)
+    segs = segment.get_missing_coverage(coverage, line_limit=4)
 
-        assert len(segs) == 1
-        assert "__init__" == segs[0].name
+    assert len(segs) == 1
+    assert "__init__" == segs[0].name
 
-        assert textwrap.dedent(segs[0].get_excerpt()) == textwrap.dedent("""\
-               class Foo:
-                   class Bar:
-                       def __init__(self, x):
-                           self.x = None
-            5:             if x:
-                               self.x = x
-            7:             self.y = 0
-            """)
+    assert textwrap.dedent(segs[0].get_excerpt()) == textwrap.dedent("""\
+           class Foo:
+               class Bar:
+                   def __init__(self, x):
+                       self.x = None
+        5:             if x:
+                           self.x = x
+        7:             self.y = 0
+        """)
 

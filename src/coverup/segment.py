@@ -2,7 +2,7 @@ import typing as T
 from pathlib import Path
 from .utils import *
 import ast
-from .codeinfo import get_global_imports
+from .codeinfo import get_global_imports, parse_file
 
 
 class CodeSegment:
@@ -89,8 +89,7 @@ def get_missing_coverage(coverage, line_limit: int = 100) -> T.List[CodeSegment]
                     return (node, begin, node.end_lineno+1) # +1 for range() style
 
     for fname, fcov in coverage['files'].items():
-        with open(fname, "r") as src:
-            tree = ast.parse(src.read(), fname)
+        tree = parse_file(Path(fname))
 
         missing_lines = set(fcov['missing_lines'])
         executed_lines = set(fcov['executed_lines'])
