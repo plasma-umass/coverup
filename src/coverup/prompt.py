@@ -102,7 +102,7 @@ Modify it to correct that; respond only with the complete Python code in backtic
 
 
 class Gpt4PrompterV2(Prompter):
-    """Prompter for GPT-4."""
+    """Prompter for GPT."""
 
     def __init__(self, *args, **kwargs):
         Prompter.__init__(self, *args, **kwargs)
@@ -188,7 +188,48 @@ Use the get_info tool function as necessary.
 
 
 class Gpt4PrompterV2Ablated(Prompter):
-    """Prompter for GPT-4 that does not use coverage information."""
+    """Fully ablated GPT prompter."""
+
+    def __init__(self, *args, **kwargs):
+        Prompter.__init__(self, *args, **kwargs)
+
+    def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
+        args = self.args
+        module_name = get_module_name(segment.path, args.package_dir)
+        filename = segment.path.relative_to(args.package_dir.parent)
+
+        return [
+            _message(f"""
+You are an expert Python test-driven developer.
+The code below, extracted from {filename}, does not achieve full coverage.
+Create new pytest test functions that execute all lines and branches, always making
+sure that each test is correct and indeed improves coverage.
+Always send entire Python test scripts when proposing a new test or correcting one you
+previously proposed.
+Be sure to include assertions in the test that verify any applicable postconditions.
+Please also make VERY SURE to clean up after the test, so as to avoid state pollution;
+use 'monkeypatch' or 'pytest-mock' if appropriate.
+Write as little top-level code as possible, and in particular do not include any top-level code
+calling into pytest.main or the test itself.
+Respond ONLY with the Python code enclosed in backticks, without any explanation.
+```python
+{segment.get_excerpt(tag_lines=False, include_imports=False)}
+```
+""")
+        ]
+
+
+    def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict] | None:
+        return None
+
+
+    def missing_coverage_prompt(self, segment: CodeSegment,
+                                missing_lines: set, missing_branches: set) -> T.List[dict] | None:
+        return None
+
+
+class Gpt4PrompterV2OnlyError(Prompter):
+    """Partially ablated GPT prompter that attempts error correction."""
 
     def __init__(self, *args, **kwargs):
         Prompter.__init__(self, *args, **kwargs)
@@ -219,22 +260,16 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         ]
 
     def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict] | None:
-        return None
-#        return [_message(f"""\
-#Executing the test yields an error, shown below.
-#Modify the test to correct it; respond only with the complete Python code in backticks.
-#
-#{error}""")
-#        ]
+        return [_message(f"""\
+Executing the test yields an error, shown below.
+Modify the test to correct it; respond only with the complete Python code in backticks.
+
+{error}""")
+        ]
 
     def missing_coverage_prompt(self, segment: CodeSegment,
                                 missing_lines: set, missing_branches: set) -> T.List[dict] | None:
         return None
-#        return [_message(f"""\
-#The tests still lack coverage.
-#Modify to correct that; respond only with the complete Python code in backticks.
-#""")
-#        ]
 
 
 class ClaudePrompter(Prompter):
@@ -313,6 +348,8 @@ prompters = {
     "gpt": Gpt4PrompterV1,
     "gpt-v1": Gpt4PrompterV1,
     "gpt-v2": Gpt4PrompterV2,
+    "gpt-v2-fully-ablated": Gpt4PrompterV2Ablated,
     "gpt-v2-ablated": Gpt4PrompterV2Ablated,
+    "gpt-v2-only-error": Gpt4PrompterV2OnlyError,
     "claude": ClaudePrompter
 }
