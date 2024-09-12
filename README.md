@@ -93,7 +93,7 @@ For this experiment, both CoverUp and CodaMosa created tests "from scratch", tha
 The bars show the difference in coverage percentage between CoverUp and CodaMosa for various Python modules;
 green bars, above 0, indicate that CoverUp achieved a higher coverage.
 
-As the graph shows, CoverUp achieves higher coverage in almost every case.
+As the graph shows, CoverUp achieves higher coverage than CodaMosa for most modules.
 
 <br/>
 
