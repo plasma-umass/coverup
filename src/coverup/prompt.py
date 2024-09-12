@@ -228,8 +228,8 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         return None
 
 
-class Gpt4PrompterV2OnlyError(Prompter):
-    """Partially ablated GPT prompter that attempts error correction."""
+class Gpt4PrompterV2CoverageAblated(Prompter):
+    """Partially ablated GPT prompter that lacks coverage information."""
 
     def __init__(self, *args, **kwargs):
         Prompter.__init__(self, *args, **kwargs)
@@ -245,6 +245,7 @@ You are an expert Python test-driven developer.
 The code below, extracted from {filename}, does not achieve full coverage.
 Create new pytest test functions that execute all lines and branches, always making
 sure that each test is correct and indeed improves coverage.
+Use the get_info tool function as necessary.
 Always send entire Python test scripts when proposing a new test or correcting one you
 previously proposed.
 Be sure to include assertions in the test that verify any applicable postconditions.
@@ -254,7 +255,7 @@ Write as little top-level code as possible, and in particular do not include any
 calling into pytest.main or the test itself.
 Respond ONLY with the Python code enclosed in backticks, without any explanation.
 ```python
-{segment.get_excerpt(tag_lines=False, include_imports=False)}
+{segment.get_excerpt(tag_lines=False, include_imports=True)}
 ```
 """)
         ]
@@ -263,6 +264,7 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
         return [_message(f"""\
 Executing the test yields an error, shown below.
 Modify the test to correct it; respond only with the complete Python code in backticks.
+Use the get_info tool function as necessary.
 
 {error}""")
         ]
@@ -270,6 +272,11 @@ Modify the test to correct it; respond only with the complete Python code in bac
     def missing_coverage_prompt(self, segment: CodeSegment,
                                 missing_lines: set, missing_branches: set) -> T.List[dict] | None:
         return None
+
+    get_info = Gpt4PrompterV2.get_info
+
+    def get_functions(self) -> T.List[T.Callable]:
+        return [__class__.get_info]
 
 
 class ClaudePrompter(Prompter):
@@ -345,11 +352,11 @@ This test still lacks coverage: {lines_branches_do(missing_lines, set(), missing
 
 # prompter registry
 prompters = {
-    "gpt": Gpt4PrompterV1,
+    "gpt": Gpt4PrompterV2,
     "gpt-v1": Gpt4PrompterV1,
     "gpt-v2": Gpt4PrompterV2,
     "gpt-v2-fully-ablated": Gpt4PrompterV2Ablated,
     "gpt-v2-ablated": Gpt4PrompterV2Ablated,
-    "gpt-v2-only-error": Gpt4PrompterV2OnlyError,
+    "gpt-v2-coverage-ablated": Gpt4PrompterV2CoverageAblated,
     "claude": ClaudePrompter
 }
