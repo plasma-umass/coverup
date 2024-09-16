@@ -3,8 +3,8 @@ name = "CoverUp"
 description = "LLM-powered test coverage improver"
 dynamic = ["readme", "version"]
 authors = [
-    { name="Juan Altmayer Pizzorno", email="juan@altmayer.com" },
-    { name="Emery Berger", email="emery.berger@gmail.com" }
+    { name="Juan Altmayer Pizzorno" },
+    { name="Emery Berger" }
 ]
 classifiers = [
     "Programming Language :: Python :: 3.10",
