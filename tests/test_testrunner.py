@@ -4,6 +4,7 @@ import coverup.testrunner as tr
 from pathlib import Path
 import tempfile
 import textwrap
+import sys
 
 
 @pytest.mark.asyncio
@@ -12,6 +13,7 @@ async def test_measure_test_coverage_exit_1(tmpdir):
         await tr.measure_test_coverage(test="import os;\ndef test_foo(): os.exit(1)\n", tests_dir=Path(tmpdir))
 
 
+@pytest.mark.skipif(sys.version_info[:2] == (3,10), reason="Python 3.10 doesn't use state() as newer versions do")
 @pytest.mark.asyncio
 async def test_measure_test_coverage_uses_cleanslate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
