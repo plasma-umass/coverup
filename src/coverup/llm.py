@@ -93,7 +93,16 @@ def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int]:
         model_name = model_name[7:]
 
     if (model_limits := MODEL_RATE_LIMITS.get(model_name)):
-        return model_limits.get('token')
+        limit = model_limits.get('token')
+
+        try:
+            import tiktoken
+            tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            warnings.warn(f"Unable to get encoding for {model_name}; will ignore rate limit")
+            return None
+
+        return limit
 
     return None
 

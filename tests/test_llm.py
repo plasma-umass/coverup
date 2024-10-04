@@ -20,3 +20,22 @@ def test_compute_cost():
 
     # unknown token types
     assert None  == llm.compute_cost({'blue_tokens':60625, 'red_tokens':4731}, 'gpt-4')
+
+
+def test_token_rate_limit_for_model():
+    assert llm.token_rate_limit_for_model('gpt-4') != None
+    assert llm.token_rate_limit_for_model('openai/gpt-4') != None
+
+    assert llm.token_rate_limit_for_model('unknown') is None
+
+
+def test_token_rate_limit_for_model_no_encoding(monkeypatch):
+    import tiktoken
+
+    def mock_get_encoding(model: str):
+        raise KeyError(f"{model} who?")
+
+    monkeypatch.setattr(tiktoken, 'encoding_for_model', mock_get_encoding)
+
+    assert llm.token_rate_limit_for_model('gpt-4') is None
+    assert llm.token_rate_limit_for_model('openai/gpt-4') is None
