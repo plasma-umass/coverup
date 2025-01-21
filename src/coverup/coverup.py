@@ -11,11 +11,33 @@ from datetime import datetime
 
 from . import llm
 from .segment import *
+from .prompt.prompter import Prompter
 from .testrunner import *
 from .version import __version__
 from .utils import summary_coverage
-from . import prompt
 
+
+def get_prompters() -> dict[str, Prompter]:
+    # in the future, we may dynamically load based on file names.
+
+    from .prompt.gpt_v1 import GptV1Prompter
+    from .prompt.gpt_v2 import GptV2Prompter
+    from .prompt.gpt_v2_no_coverage import GptV2NoCoveragePrompter
+    from .prompt.gpt_v2_no_coverage_no_function import GptV2NoCoverageNoFunctionPrompter
+    from .prompt.gpt_v2_fully_ablated import GptV2FullyAblatedPrompter
+    from .prompt.claude import ClaudePrompter
+
+    return {
+        "gpt-v1": GptV1Prompter,
+        "gpt-v2": GptV2Prompter,
+        "gpt-v2-no-coverage": GptV2NoCoveragePrompter,
+        "gpt-v2-no-coverage-no-function": GptV2NoCoverageNoFunctionPrompter,
+        "gpt-v2-fully-ablated": GptV2FullyAblatedPrompter,
+        "claude": ClaudePrompter
+    }
+
+
+prompter_registry = get_prompters()
 
 
 def parse_args(args=None):
@@ -55,9 +77,9 @@ def parse_args(args=None):
     ap.add_argument('--model', type=str, default=default_model(),
                     help='OpenAI model to use')
 
-    ap.add_argument('--prompt-family', type=str,
-                    choices=list(prompt.prompters.keys()),
-                    default='gpt',
+    ap.add_argument('--prompt', '--prompt-family', type=str,
+                    choices=list(prompter_registry.keys()),
+                    default='gpt-v2',
                     help='Prompt style to use')
 
     ap.add_argument('--model-temperature', type=float, default=0,
@@ -476,7 +498,7 @@ def extract_python(response: str) -> str:
 
 state = None
 
-async def improve_coverage(chatter: llm.Chatter, prompter: prompt.Prompter, seg: CodeSegment) -> bool:
+async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
     global args
 
@@ -615,7 +637,7 @@ def main():
             if args.rate_limit:
                 chatter.set_token_rate_limit((args.rate_limit, 60))
 
-            prompter = prompt.prompters[args.prompt_family](args=args)
+            prompter = prompter_registry[args.prompt](cmd_args=args)
             for f in prompter.get_functions():
                 chatter.add_function(f)
 
