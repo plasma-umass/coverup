@@ -22,17 +22,19 @@ def get_prompters() -> dict[str, Prompter]:
 
     from .prompt.gpt_v1 import GptV1Prompter
     from .prompt.gpt_v2 import GptV2Prompter
-    from .prompt.gpt_v2_no_coverage import GptV2NoCoveragePrompter
-    from .prompt.gpt_v2_no_coverage_no_function import GptV2NoCoverageNoFunctionPrompter
-    from .prompt.gpt_v2_fully_ablated import GptV2FullyAblatedPrompter
+    from .prompt.gpt_v2_ablated import GptV2AblatedPrompter
     from .prompt.claude import ClaudePrompter
 
     return {
         "gpt-v1": GptV1Prompter,
         "gpt-v2": GptV2Prompter,
-        "gpt-v2-no-coverage": GptV2NoCoveragePrompter,
-        "gpt-v2-no-coverage-no-function": GptV2NoCoverageNoFunctionPrompter,
-        "gpt-v2-fully-ablated": GptV2FullyAblatedPrompter,
+        "gpt-v2-no-coverage": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_coverage=False),
+        "gpt-v2-no-get-info": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_get_info=False),
+        "gpt-v2-no-imports": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_imports=False),
+        "gpt-v2-no-error-fixing": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_error_fixing=False),
+        "gpt-v2-ablated": \
+            lambda cmd_args: GptV2AblatedPrompter(cmd_args,
+                with_coverage=False, with_get_info=False, with_imports=False, with_error_fixing=False),
         "claude": ClaudePrompter
     }
 

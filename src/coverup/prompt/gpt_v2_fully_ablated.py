@@ -1,8 +1,8 @@
 import typing as T
-from .gpt_v2_no_coverage_no_function import *
+from .gpt_v2 import *
 
 
-class GptV2FullyAblatedPrompter(GptV2NoCoverageNoFunctionPrompter):
+class GptV2FullyAblatedPrompter(GptV2Prompter):
     """Fully ablated GPT prompter."""
 
     def __init__(self, *args, **kwargs):
@@ -28,7 +28,7 @@ Write as little top-level code as possible, and in particular do not include any
 calling into pytest.main or the test itself.
 Respond ONLY with the Python code enclosed in backticks, without any explanation.
 ```python
-{segment.get_excerpt(tag_lines=False, include_imports=False)}
+{segment.get_excerpt(tag_lines=False, add_imports=False)}
 ```
 """)
         ]
@@ -36,3 +36,12 @@ Respond ONLY with the Python code enclosed in backticks, without any explanation
 
     def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict] | None:
         return None
+
+
+    def missing_coverage_prompt(self, segment: CodeSegment,
+                                missing_lines: set, missing_branches: set) -> T.List[dict] | None:
+        return None
+
+
+    def get_functions(self) -> T.List[T.Callable]:
+        return []
