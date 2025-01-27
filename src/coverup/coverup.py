@@ -336,19 +336,22 @@ def missing_imports(modules: T.List[str]) -> T.List[str]:
 def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool: 
     global args, module_available
 
+    import importlib.metadata
+
     all_ok = True
     for module in modules:
         try:
             # FIXME we probably want to limit the module(s) installed to an "approved" list
             p = subprocess.run((f"{sys.executable} -m pip install {module}").split(),
                                check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+            version = importlib.metadata.version(module)
             module_available[module] = 2    # originally unavailable, but now added
-            print(f"Installed module {module}")
-            log_write(seg, f"Installed module {module}")
+            print(f"Installed module {module} {version}")
+            log_write(seg, f"Installed module {module} {version}")
 
             if args.write_requirements_to:
                 with args.write_requirements_to.open("a") as f:
-                    f.write(f"{module}\n")
+                    f.write(f"{module}=={version}\n")
         except subprocess.CalledProcessError as e:
             log_write(seg, f"Unable to install module {module}:\n{str(e.stdout, 'UTF-8', errors='ignore')}")
             all_ok = False
