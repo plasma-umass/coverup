@@ -53,9 +53,8 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
     """Provides an asynchronous version of subprocess.run"""
     import asyncio
 
-    pcoro = asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
-                                          stderr=asyncio.subprocess.STDOUT)
-    process = await pcoro
+    process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
+                                                   stderr=asyncio.subprocess.STDOUT)
 
     try:
         if timeout is not None:
@@ -70,11 +69,8 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
             timeout_f = float(timeout)
         else:
             timeout_f = 0.0
-
-        pcoro.close()
         raise subprocess.TimeoutExpired(args, timeout_f) from None
 
-    pcoro.close()
     if check and process.returncode != 0:
         raise subprocess.CalledProcessError(process.returncode, args, output=output)
 
