@@ -55,7 +55,6 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
 
     process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE,
                                                    stderr=asyncio.subprocess.STDOUT)
-    transport = getattr(process, "_transport", None)
 
     try:
         if timeout is not None:
@@ -70,15 +69,11 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
             timeout_f = float(timeout)
         else:
             timeout_f = 0.0
-
-        if transport: transport.close()
         raise subprocess.TimeoutExpired(args, timeout_f) from None
 
     if check and process.returncode != 0:
-        if transport: transport.close()
         raise subprocess.CalledProcessError(process.returncode, args, output=output)
 
-    if transport: transport.close()
     return subprocess.CompletedProcess(args=args, returncode=process.returncode, stdout=output)
 
 
