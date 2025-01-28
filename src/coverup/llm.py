@@ -159,6 +159,7 @@ class Chatter:
         self._log_json = lambda ctx, j: None
         self._signal_retry = lambda: None
         self._functions = dict()
+        self._max_func_calls_per_chat = 50
 
 
     @staticmethod
@@ -338,8 +339,8 @@ args:{args}
         """Chats with the LLM, sending the given messages, handling common failures and returning the response.
            Automatically calls any tool functions requested."""
 
-        # TODO add iteration limit?
-        while True:
+        func_calls = 0
+        while func_calls <= self._max_func_calls_per_chat:
             request = self._request(messages)
             self._log_json(ctx, request)
 
@@ -357,9 +358,13 @@ args:{args}
             messages.append(tool_message)
 
             for call in response.choices[0].message.tool_calls:
+                func_calls += 1
                 messages.append({
                     'tool_call_id': call.id,
                     'role': 'tool',
                     'name': call.function.name,
                     'content': self._call_function(ctx, call)
                 })
+
+        self._log_msg(ctx, f"Too many function call requests, giving up")
+        return None
