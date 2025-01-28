@@ -63,8 +63,12 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
             output, _ = await process.communicate()
 
     except (asyncio.TimeoutError, asyncio.exceptions.TimeoutError):
-        process.terminate()
-        await process.wait()
+        try:
+            process.terminate()
+            await process.wait()
+        except ProcessLookupError:
+            pass
+
         if timeout:
             timeout_f = float(timeout)
         else:
