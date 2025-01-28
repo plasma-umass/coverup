@@ -211,6 +211,9 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
+#    max_calls = 0
+#    max_seq = ''
+
     for log in args.logs:
         for seg, seq in get_sequences(log.read_text(), check_c_p_equivalence=args.check_c_p):
             if args.errors_only and seq[-1][0] == 'G':
@@ -221,3 +224,11 @@ if __name__ == "__main__":
             for ev in seq:
                 print(f"--- {ev[1]} {ev[0]} ---")
                 print(ev[2])
+
+#            evseq = ''.join(ev[0] for ev in seq)
+#            for funccalls in re.findall(r'(?:nN)+', evseq):
+#                if len(funccalls)//2 > max_calls:
+#                    max_calls = len(funccalls)//2
+#                    max_seq = evseq
+
+#print(f"{max_calls=}  {max_seq=}")
