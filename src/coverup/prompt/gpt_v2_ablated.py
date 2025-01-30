@@ -75,6 +75,35 @@ Modify it to correct that; respond only with the complete Python code in backtic
         ]
 
 
+    def get_info(self, ctx: CodeSegment, name: str) -> str:
+        """
+        {
+            "name": "get_info",
+            "description": "Returns information about a symbol.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "class, function or method name, as in 'f' for function f or 'C.foo' for method foo in class C."
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+        """
+
+        if info := codeinfo.get_info(
+            codeinfo.parse_file(ctx.path),
+            name,
+            line=ctx.begin,
+            generate_imports=self.with_imports
+        ):
+            return "\"...\" below indicates omitted code.\n\n" + info
+
+        return f"Unable to obtain information on {name}."
+
+
     def get_functions(self) -> T.List[T.Callable]:
         if not self.with_get_info: return []
-        return [__class__.get_info]
+        return [self.get_info]

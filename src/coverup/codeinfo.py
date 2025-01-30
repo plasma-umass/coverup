@@ -299,7 +299,7 @@ def _find_excerpt(module: ast.Module, line: int) -> ast.AST:
                 return node
 
 
-def get_info(module: ast.Module, name: str, *, line: int = 0) -> T.Optional[str]:
+def get_info(module: ast.Module, name: str, *, line: int = 0, generate_imports: bool = True) -> T.Optional[str]:
     """Returns summarized information on a class or function, following imports if necessary."""
 
     key = name.split('.')
@@ -360,7 +360,10 @@ def get_info(module: ast.Module, name: str, *, line: int = 0) -> T.Optional[str]
                     content = path[i+1] if i < len(path)-1 else mod
                     # When a module itself is the content, all imports are retained,
                     # so there's no need to look for them.
-                    imports = get_global_imports(mod, content) if mod != content else []
+                    if generate_imports and mod != content:
+                        imports = get_global_imports(mod, content)
+                    else:
+                        imports = []
                     if result: result += "\n\n"
                     result += f"""\
 in {_package_path(mod.path)}:
@@ -369,7 +372,10 @@ in {_package_path(mod.path)}:
 ```"""
             return result
         else:
-            imports = get_global_imports(module, path[0])
+            if generate_imports:
+                imports = get_global_imports(module, path[0])
+            else:
+                imports = []
             return f"""\
 ```python
 {ast.unparse(ast.Module(body=[*imports, path[0]], type_ignores=[]))}

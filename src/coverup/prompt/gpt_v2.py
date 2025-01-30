@@ -1,6 +1,6 @@
 import typing as T
 from .prompter import *
-from ..codeinfo import get_info, parse_file
+import coverup.codeinfo as codeinfo
 
 
 class GptV2Prompter(Prompter):
@@ -57,8 +57,7 @@ Use the get_info tool function as necessary.
         ]
 
 
-    @staticmethod
-    def get_info(ctx: CodeSegment, name: str) -> str:
+    def get_info(self, ctx: CodeSegment, name: str) -> str:
         """
         {
             "name": "get_info",
@@ -76,11 +75,11 @@ Use the get_info tool function as necessary.
         }
         """
 
-        if info := get_info(parse_file(ctx.path), name, line=ctx.begin):
+        if info := codeinfo.get_info(codeinfo.parse_file(ctx.path), name, line=ctx.begin):
             return "\"...\" below indicates omitted code.\n\n" + info
 
         return f"Unable to obtain information on {name}."
 
 
     def get_functions(self) -> T.List[T.Callable]:
-        return [__class__.get_info]
+        return [self.get_info]

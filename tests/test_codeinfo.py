@@ -983,6 +983,20 @@ def test_get_info_includes_imports(import_fixture):
         ```"""
     )
 
+    assert codeinfo.get_info(tree, 'C', generate_imports=False) == textwrap.dedent("""\
+        ```python
+        class C(Z):
+            from foo import Foo
+            x = len(sys.path)
+
+            def __init__(self, x: int) -> C:
+                self._foo = Z(x)
+
+            class B:
+                ...
+        ```"""
+    )
+
     assert codeinfo.get_info(tree, 'C.Foo') == textwrap.dedent("""\
         in code.py:
         ```python
@@ -1002,10 +1016,32 @@ def test_get_info_includes_imports(import_fixture):
         ```"""
     )
 
+    assert codeinfo.get_info(tree, 'C.Foo', generate_imports=False) == textwrap.dedent("""\
+        in code.py:
+        ```python
+        class C(Z):
+            ...
+            from foo import Foo
+        ```
+
+        in foo.py:
+        ```python
+        class Foo(Bar):
+            pass
+        ```"""
+    )
+
     assert codeinfo.get_info(tree, 'func') == textwrap.dedent("""\
         ```python
         import os
 
+        def func(x: C):
+            x.foo(os.environ)
+        ```"""
+    )
+
+    assert codeinfo.get_info(tree, 'func', generate_imports=False) == textwrap.dedent("""\
+        ```python
         def func(x: C):
             x.foo(os.environ)
         ```"""
