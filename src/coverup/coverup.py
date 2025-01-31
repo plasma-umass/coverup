@@ -29,8 +29,7 @@ def get_prompters() -> dict[str, Prompter]:
         "gpt-v1": GptV1Prompter,
         "gpt-v2": GptV2Prompter,
         "gpt-v2-no-coverage": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_coverage=False),
-        "gpt-v2-no-get-info": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_get_info=False),
-        "gpt-v2-no-imports": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_imports=False),
+        "gpt-v2-no-code-context": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_get_info=False, with_imports=False),
         "gpt-v2-no-error-fixing": lambda cmd_args: GptV2AblatedPrompter(cmd_args, with_error_fixing=False),
         "gpt-v2-ablated": \
             lambda cmd_args: GptV2AblatedPrompter(cmd_args,
