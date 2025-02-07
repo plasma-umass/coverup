@@ -239,7 +239,7 @@ class Chatter:
     def add_function(self, function: T.Callable) -> None:
         """Makes a function availabe to the LLM."""
         if not litellm.supports_function_calling(self._model):
-            raise ChatError(f"The {f._model} model does not support function calling.")
+            raise ChatterError(f"The {f._model} model does not support function calling.")
 
         try:
             schema = json.loads(function.__doc__)
