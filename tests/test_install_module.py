@@ -23,7 +23,8 @@ def test_install(pkg_fixture, monkeypatch, uninstall):
 
     monkeypatch.setattr("coverup.coverup.log_write", mock_log_write)
     monkeypatch.setattr("coverup.coverup.args",
-        coverup.parse_args(["--package", "lib/ansible", "--tests", "tests", "--write-requirements-to", "reqs.txt"]),
+        coverup.parse_args(["--package", "lib/ansible", "--tests", "tests", "--model", "gpt4o",
+                            "--write-requirements-to", "reqs.txt"]),
         raising=False
     )
 
