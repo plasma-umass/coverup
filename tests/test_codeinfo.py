@@ -29,6 +29,7 @@ def importlib_cleanup():
 @pytest.fixture
 def import_fixture(importlib_cleanup, monkeypatch):
     import tempfile
+    import shutil
 
     # Avoid using the tmp_path fixture because it retains the directories
     # while other tests execute... if importlib then still has something
@@ -40,7 +41,7 @@ def import_fixture(importlib_cleanup, monkeypatch):
         monkeypatch.syspath_prepend(tmp_path)
         yield tmp_path
 
-#    tmp_path.rmdir()
+    shutil.rmtree(tmp_path)
 
 
 def get_fqn(p):
