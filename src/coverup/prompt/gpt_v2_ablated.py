@@ -22,8 +22,7 @@ class GptV2AblatedPrompter(GptV2Prompter):
 
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
-        module_name = get_module_name(segment.path, self.args.package_dir)
-        filename = segment.path.relative_to(self.args.package_dir.parent)
+        filename = segment.path.relative_to(self.args.src_base_dir)
 
         return [
             mk_message(f"""

@@ -51,13 +51,13 @@ def parse_args(args=None):
 
     def Path_dir(value):
         path_dir = Path(value).resolve()
-        if not path_dir.is_dir(): raise argparse.ArgumentTypeError("must be a directory")
+        if not path_dir.is_dir(): raise argparse.ArgumentTypeError(f"\"{value}\" must be a directory")
         return path_dir
 
-    ap.add_argument('--tests-dir', type=Path_dir, required=True,
+    ap.add_argument('--tests-dir', type=Path_dir, default='tests',
                     help='directory where tests reside')
 
-    g = ap.add_mutually_exclusive_group(required=True)
+    g = ap.add_mutually_exclusive_group(required=False)
     g.add_argument('--package-dir', type=Path_dir,
                     help='directory with the package sources (e.g., src/flask)')
     g.add_argument('--source-dir', type=Path_dir, dest='package_dir', help=argparse.SUPPRESS)
@@ -179,18 +179,30 @@ def parse_args(args=None):
     if not args.model:
         ap.error('Specify the model to use with --model')
 
-    if not list(args.package_dir.glob("*.py")):
-        sources = sorted(args.package_dir.glob("**/*.py"), key=lambda p: len(p.parts))
-        suggestion = sources[0].parent if sources else None
+    if args.package_dir:
+        # use parent of package dir as base so that its name is included in module paths
+        args.src_base_dir = args.package_dir.parent
+        if not list(args.package_dir.glob("*.py")):
+            sources = sorted(args.package_dir.glob("**/*.py"), key=lambda p: len(p.parts))
+            suggestion = sources[0].parent if sources else None
 
-        try:
-            args.package_dir = args.package_dir.relative_to(Path.cwd())
-            suggestion = suggestion.relative_to(Path.cwd()) if suggestion else None
-        except ValueError:
-            pass
+            try:
+                args.package_dir = args.package_dir.relative_to(Path.cwd())
+                suggestion = suggestion.relative_to(Path.cwd()) if suggestion else None
+            except ValueError:
+                pass
 
-        ap.error(f'No Python sources found in "{args.package_dir}"' +
-                 (f'; did you mean "{suggestion}"?' if suggestion else '.'))
+            ap.error(f'No Python sources found in "{args.package_dir}"' +
+                     (f'; did you mean "{suggestion}"?' if suggestion else '.'))
+
+    elif args.source_files:
+        if len({p.parent for p in args.source_files}) > 1:
+            ap.error('All source files must be in the same directory unless --package-dir is given.')
+        # use the directory itself as base, as these file(s) are not obviously part of anything
+        args.src_base_dir = args.source_files[0].parent
+    else:
+        ap.error('Specify either --package-dir or a file name')
+
 
     return args
 
@@ -606,11 +618,10 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
     return True # finished
 
 
-def add_to_pythonpath(package_dir: Path):
+def add_to_pythonpath(dir: Path):
     import os
-    parent = str(package_dir.parent)
-    os.environ['PYTHONPATH'] = parent + (f":{os.environ['PYTHONPATH']}" if 'PYTHONPATH' in os.environ else "")
-    sys.path.insert(0, parent)
+    os.environ['PYTHONPATH'] = str(dir) + (f":{os.environ['PYTHONPATH']}" if 'PYTHONPATH' in os.environ else "")
+    sys.path.insert(0, str(dir))
 
 
 def main():
@@ -626,7 +637,7 @@ def main():
 
     # add source dir to paths so that the module doesn't need to be installed to be worked on
     if args.add_to_pythonpath:
-        add_to_pythonpath(args.package_dir)
+        add_to_pythonpath(args.src_base_dir)
 
     if args.prompt_for_tests:
         try:
@@ -704,7 +715,7 @@ def main():
         worklist = []
         seg_done_count = 0
         for seg in segments:
-            if not seg.path.is_relative_to(args.package_dir):
+            if not seg.path.is_relative_to(args.src_base_dir):
                 continue
 
             if args.source_files and seg.path not in args.source_files:

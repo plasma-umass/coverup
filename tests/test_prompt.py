@@ -12,9 +12,9 @@ import coverup.codeinfo
 
 def test_get_module_name():
     fpath = Path('src/flask/json/provider.py').resolve()
-    srcpath = Path('src/flask').resolve()
+    base_path = Path('src').resolve()
 
-    assert 'flask.json.provider' == get_module_name(fpath, srcpath)
+    assert 'flask.json.provider' == get_module_name(fpath, base_path)
 
     assert None == get_module_name(fpath, Path('./tests').resolve())
 
@@ -65,6 +65,7 @@ def pkg_fixture(tmp_path, monkeypatch):
 
 def test_gpt_v1_relative_file_name(pkg_fixture):
     args = parse_args(["--source", "lib/ansible", "--tests", "tests", "--model", "gpt-4o"])
+    print(f"{args.src_base_dir=}")
 
     p = GptV1Prompter(args)
     initial = p.initial_prompt(MockSegment())

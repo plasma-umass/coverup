@@ -40,14 +40,16 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='',
     return cov
 
 
-def measure_suite_coverage(*, tests_dir: Path, source_dir: Path, pytest_args='',
+def measure_suite_coverage(*, tests_dir: Path, source_dir: T.Optional[Path], pytest_args='',
                            trace=None, isolate_tests=False, branch_coverage=True):
     """Runs an entire test suite and returns the coverage obtained."""
 
     with tempfile.NamedTemporaryFile(suffix='.json', delete=False) as j:
         try:
             command = [sys.executable,
-                       '-m', 'slipcover', '--source', source_dir, *(('--branch',) if branch_coverage else ()),
+                       '-m', 'slipcover',
+                             *(('--source', source_dir) if source_dir else ()),
+                             *(('--branch',) if branch_coverage else ()),
                              '--json', '--out', j.name,
                        '-m', 'pytest', *pytest_args.split(), *(('--cleanslate',) if isolate_tests else ()),
                              '--disable-warnings', '-x', tests_dir]

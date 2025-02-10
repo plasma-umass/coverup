@@ -10,9 +10,8 @@ class GptV1Prompter(Prompter):
 
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
-        args = self.args
-        module_name = get_module_name(segment.path, args.package_dir)
-        filename = segment.path.relative_to(args.package_dir.parent)
+        module_name = get_module_name(segment.path, self.args.src_base_dir)
+        filename = segment.path.relative_to(self.args.src_base_dir)
 
         return [
             mk_message(f"""

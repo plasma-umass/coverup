@@ -34,11 +34,11 @@ class Prompter(abc.ABC):
         return []
 
 
-def get_module_name(src_file: Path, src_dir: Path) -> str:
+def get_module_name(src_file: Path, base_dir: Path) -> str:
     # assumes both src_file and src_dir Path.resolve()'d
     try:
-        relative = src_file.relative_to(src_dir)
-        return ".".join((src_dir.stem,) + relative.parts[:-1] + (relative.stem,))
+        relative = src_file.relative_to(base_dir)
+        return ".".join(relative.parts[:-1] + (relative.stem,))
     except ValueError:
         return None  # not relative to source
 

@@ -10,8 +10,8 @@ class ClaudePrompter(Prompter):
 
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
-        module_name = get_module_name(segment.path, self.args.package_dir)
-        filename = segment.path.relative_to(self.args.package_dir.parent)
+        module_name = get_module_name(segment.path, self.args.src_base_dir)
+        filename = segment.path.relative_to(self.args.src_base_dir)
 
         return [
             mk_message("You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage.",

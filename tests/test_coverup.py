@@ -140,7 +140,7 @@ def test_add_to_pythonpath(pythonpath_exists):
         elif 'PYTHONPATH' in os.environ:
             del os.environ['PYTHONPATH']
 
-        coverup.add_to_pythonpath(Path("baz/mymodule"))
+        coverup.add_to_pythonpath(Path("baz"))
 
         if pythonpath_exists:
             assert os.environ['PYTHONPATH'] == 'baz:foo:bar'
