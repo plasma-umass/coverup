@@ -7,9 +7,19 @@ import importlib.util
 _debug = lambda x: None
 
 
+class Module(ast.Module):
+    def __init__(self, original: ast.Module, path: Path):
+        super().__init__(original.body, original.type_ignores)
+        self.path = path
+
+    def __reduce__(self):
+        # for pickle/deepcopy
+        return (self.__class__, (ast.Module(self.body, self.type_ignores), self.path))
+
+
 # TODO use 'ast' alternative that retains comments?
 
-def _package_path(file: Path) -> T.Optional[T.List[str]]:
+def _package_path(file: Path) -> Path|None:
     """Returns a Python source file's path relative to its package"""
     import sys
 
@@ -18,6 +28,7 @@ def _package_path(file: Path) -> T.Optional[T.List[str]]:
 
     parents = list(file.parents)
 
+    path: str|Path
     for path in sys.path:
         path = Path(path)
         if not path.is_absolute():
@@ -27,33 +38,35 @@ def _package_path(file: Path) -> T.Optional[T.List[str]]:
             if p == path:
                 return file.relative_to(p)
 
+    return None
 
-def _get_fqn(file: Path) -> T.Optional[T.List[str]]:
+
+def _get_fqn(file: Path) -> T.Sequence[str]|None:
     """Returns a source file's Python Fully Qualified Name, as a list name parts."""
     if not (path := _package_path(file)):
-        return none
+        return None
 
     path = path.parent if path.name == '__init__.py' else path.parent / path.stem
     return path.parts
 
 
-def _resolve_from_import(file: Path, imp: ast.ImportFrom) -> str:
+def _resolve_from_import(file: Path, imp: ast.ImportFrom) -> str|None:
     """Resolves the module name in a `from X import Y` statement."""
 
     if imp.level > 0:  # relative import
         if not (pkg_path := _package_path(file)):
             return None
 
-        pkg_path = pkg_path.parts
-        if imp.level > len(pkg_path):
+        pkg_path_parts = pkg_path.parts
+        if imp.level > len(pkg_path_parts):
             return None # would go beyond top-level package
 
-        return ".".join(pkg_path[:-imp.level]) + (f".{imp.module}" if imp.module else "")
+        return ".".join(pkg_path_parts[:-imp.level]) + (f".{imp.module}" if imp.module else "")
 
     return imp.module # absolute from ... import 
 
 
-def _load_module(module_name: str) -> ast.Module | None:
+def _load_module(module_name: str) -> Module | None:
     try:
         if ((spec := importlib.util.find_spec(module_name))
             and spec.origin and spec.origin.endswith('.py')):
@@ -78,10 +91,10 @@ def _auto_stack(func):
     return helper
 
 
-def _handle_import(module: ast.Module, node: ast.Import | ast.ImportFrom, name: T.List[str],
-                   *, paths_seen: T.Set[Path] = None) -> T.Optional[T.List[ast.AST]]:
+def _handle_import(module: Module, node: ast.Import | ast.ImportFrom, name: T.List[str],
+                   *, paths_seen: T.Set[Path]|None = None) -> T.Optional[T.List[ast.AST]]:
 
-    def transition(node: ast.Import | ast.ImportFrom, alias: ast.alias, mod: ast.Module) -> T.List:
+    def transition(node: ast.Import | ast.ImportFrom, alias: ast.alias, mod: Module) -> T.List:
         imp = copy.copy(node)
         imp.names = [alias]
         return [imp, mod]
@@ -127,7 +140,7 @@ def _handle_import(module: ast.Module, node: ast.Import | ast.ImportFrom, name: 
                     return transition(node, alias, mod) + path
 
 
-def _find_name_path(module: ast.Module, name: T.List[str], *, paths_seen: T.Set[Path] = None) -> T.List[ast.AST]:
+def _find_name_path(module: Module, name: T.List[str], *, paths_seen: T.Set[Path]|None = None) -> T.List[ast.AST]|None:
     """Looks for a symbol's definition by its name, returning the "path" of ast.ClassDef, ast.Import, etc.,
        crossed to find it.
     """
@@ -207,7 +220,7 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
                 # Leave "__init__" unmodified as it's likely to contain important member information
                 c.body = [ast.Expr(ast.Constant(value=ast.literal_eval("...")))]
 
-    elif isinstance(path[-1], ast.Module):
+    elif isinstance(path[-1], Module):
         path[-1] = copy.deepcopy(path[-1])
         for c in ast.iter_child_nodes(path[-1]):
             if isinstance(c, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -217,7 +230,8 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
     for i in reversed(range(len(path)-1)):
         if isinstance(path[i], ast.ClassDef):
             path[i] = copy.copy(path[i])
-            path[i].body = [
+            path_i = T.cast(ast.ClassDef, path[i])
+            path_i.body = [
                 ast.Expr(ast.Constant(value=ast.literal_eval("..."))),
                 path[i+1]
             ]
@@ -225,22 +239,19 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
     return path[0]
 
 
-def parse_file(file: Path) -> ast.AST:
+def parse_file(file: Path) -> Module:
     """Reads a python source file, annotating it with its path/filename."""
     with file.open("r") as f:
         tree = ast.parse(f.read())
 
-    assert isinstance(tree, ast.Module)
-    tree._attributes = (*tree._attributes, 'path')
-    tree.path = file
-    return tree
+    return Module(tree, file)
 
 
 def _common_prefix_len(a: T.List[str], b: T.List[str]) -> int:
     return next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
 
 
-def get_global_imports(module: ast.Module, node: ast.AST) -> T.List[ast.Import | ast.ImportFrom]:
+def get_global_imports(module: Module, node: ast.AST) -> T.List[ast.Import | ast.ImportFrom]:
     """Looks for module-level `import`s that (may) define the names seen in "node"."""
 
     def get_names(node: ast.AST):
@@ -291,15 +302,17 @@ def get_global_imports(module: ast.Module, node: ast.AST) -> T.List[ast.Import |
     return imports
 
 
-def _find_excerpt(module: ast.Module, line: int) -> ast.AST:
+def _find_excerpt(module: ast.Module, line: int) -> ast.AST|None:
     for node in ast.walk(module):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             begin = min([node.lineno] + [d.lineno for d in node.decorator_list])
             if begin <= line <= node.end_lineno:
                 return node
 
+    return None
 
-def get_info(module: ast.Module, name: str, *, line: int = 0, generate_imports: bool = True) -> T.Optional[str]:
+
+def get_info(module: Module, name: str, *, line: int = 0, generate_imports: bool = True) -> T.Optional[str]:
     """Returns summarized information on a class or function, following imports if necessary."""
 
     key = name.split('.')

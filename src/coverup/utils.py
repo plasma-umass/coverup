@@ -49,7 +49,7 @@ def lines_branches_do(lines: T.Set[int], neg_lines: T.Set[int], branches: T.Set[
     return s
 
 
-async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int] = None) -> subprocess.CompletedProcess:
+async def subprocess_run(args: T.Sequence[str], check: bool = False, timeout: T.Optional[int] = None) -> subprocess.CompletedProcess:
     """Provides an asynchronous version of subprocess.run"""
     import asyncio
 
@@ -75,10 +75,11 @@ async def subprocess_run(args: str, check: bool = False, timeout: T.Optional[int
             timeout_f = 0.0
         raise subprocess.TimeoutExpired(args, timeout_f) from None
 
-    if check and process.returncode != 0:
+    if check and process.returncode:
         raise subprocess.CalledProcessError(process.returncode, args, output=output)
 
-    return subprocess.CompletedProcess(args=args, returncode=process.returncode, stdout=output)
+    # process.returncode is None iff the process hasn't terminated yet
+    return subprocess.CompletedProcess(args=args, returncode=T.cast(int, process.returncode), stdout=output)
 
 
 def summary_coverage(cov: dict, sources: T.List[Path]) -> str:

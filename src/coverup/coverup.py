@@ -17,7 +17,7 @@ from .version import __version__
 from .utils import summary_coverage
 
 
-def get_prompters() -> dict[str, Prompter]:
+def get_prompters() -> dict[str, T.Callable[[T.Any], Prompter]]:
     # in the future, we may dynamically load based on file names.
 
     from .prompt.gpt_v1 import GptV1Prompter
@@ -207,20 +207,19 @@ def parse_args(args=None):
     return args
 
 
-def test_file_path(test_seq: int) -> Path:
+def test_file_path(args, test_seq: int) -> Path:
     """Returns the Path for a test's file, given its sequence number."""
-    global args
     return args.tests_dir / f"test_{args.prefix}_{test_seq}.py"
 
 
-test_seq = 1
-def new_test_file():
+test_seq: int = 1
+def new_test_file(args):
     """Creates a new test file, returning its Path."""
 
-    global test_seq, args
+    global test_seq
 
     while True:
-        p = test_file_path(test_seq)
+        p = test_file_path(args, test_seq)
         if not (p.exists() or (p.parent / ("disabled_" + p.name)).exists()):
             try:
                 p.touch(exist_ok=False)
@@ -254,7 +253,7 @@ log_file = None
 def log_write(seg: CodeSegment, m: str) -> None:
     """Writes to the log file, opening it first if necessary."""
 
-    global log_file
+    global log_file, args
     if not log_file:
         log_file = open(args.log_file, "a", buffering=1)    # 1 = line buffered
 
@@ -265,6 +264,7 @@ def check_whole_suite() -> None:
     """Check whole suite and disable any polluting/failing tests."""
     import pytest_cleanslate.reduce as reduce
 
+    global args
     pytest_args = (*(("--count", str(args.repeat_tests)) if args.repeat_tests else ()), *args.pytest_args.split())
 
     while True:
@@ -599,7 +599,7 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
         asked = {'lines': sorted(seg.missing_lines), 'branches': sorted(seg.missing_branches)}
         gained = {'lines': sorted(gained_lines), 'branches': sorted(gained_branches)}
 
-        new_test = new_test_file()
+        new_test = new_test_file(args)
         new_test.write_text(f"# file: {seg.identify()}\n" +\
                             f"# asked: {json.dumps(asked)}\n" +\
                             f"# gained: {json.dumps(gained)}\n\n" +\

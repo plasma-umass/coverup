@@ -6,6 +6,7 @@ import warnings
 import textwrap
 import json
 import traceback
+from aiolimiter import AsyncLimiter
 
 with warnings.catch_warnings():
     # ignore pydantic warnings https://github.com/BerriAI/litellm/issues/2832
@@ -88,7 +89,7 @@ MODEL_RATE_LIMITS = {
 }
 
 
-def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int]:
+def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int]|None:
     if model_name.startswith('openai/'):
         model_name = model_name[7:]
 
@@ -107,7 +108,7 @@ def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int]:
     return None
 
 
-def compute_cost(usage: dict, model_name: str) -> float:
+def compute_cost(usage: dict, model_name: str) -> float|None:
     from math import ceil
 
     if model_name.startswith('openai/'):
@@ -121,7 +122,7 @@ def compute_cost(usage: dict, model_name: str) -> float:
     return None
 
 
-_token_encoding_cache = dict()
+_token_encoding_cache: dict[str, T.Any] = dict()
 def count_tokens(model_name: str, completion: dict):
     """Counts the number of tokens in a chat completion request."""
     import tiktoken
@@ -151,14 +152,15 @@ class Chatter:
         Chatter._validate_model(model)
 
         self._model = model
-        self._model_temperature = None
+        self._model_temperature: float|None = None
         self._max_backoff = 64 # seconds
+        self.token_rate_limit: AsyncLimiter|None
         self.set_token_rate_limit(token_rate_limit_for_model(model))
         self._add_cost = lambda cost: None
         self._log_msg = lambda ctx, msg: None
         self._log_json = lambda ctx, j: None
         self._signal_retry = lambda: None
-        self._functions = dict()
+        self._functions: dict[str, dict[str, T.Any]] = dict()
         self._max_func_calls_per_chat = 50
 
 
@@ -206,7 +208,6 @@ class Chatter:
 
     def set_token_rate_limit(self, limit: T.Union[T.Tuple[int, int], None]) -> None:
         if limit:
-            from aiolimiter import AsyncLimiter
             self.token_rate_limit = AsyncLimiter(*limit)
         else:
             self.token_rate_limit = None
@@ -239,10 +240,10 @@ class Chatter:
     def add_function(self, function: T.Callable) -> None:
         """Makes a function availabe to the LLM."""
         if not litellm.supports_function_calling(self._model):
-            raise ChatterError(f"The {f._model} model does not support function calling.")
+            raise ChatterError(f"The {self._model} model does not support function calling.")
 
         try:
-            schema = json.loads(function.__doc__)
+            schema = json.loads(getattr(function, "__doc__", ""))
             if 'name' not in schema:
                 raise ChatterError("Name missing from function {function} schema.")
         except json.decoder.JSONDecodeError as e:
@@ -263,7 +264,7 @@ class Chatter:
         }
 
 
-    async def _send_request(self, request: dict, ctx: object) -> dict:
+    async def _send_request(self, request: dict, ctx: object) -> litellm.ModelResponse|None:
         """Sends the LLM chat request, handling common failures and returning the response."""
 
         sleep = 1
@@ -319,7 +320,7 @@ class Chatter:
                 return None # gives up this segment
 
 
-    def _call_function(self, ctx: object, tool_call: dict) -> str:
+    def _call_function(self, ctx: object, tool_call: litellm.ModelResponse) -> str:
         args = json.loads(tool_call.function.arguments)
         function = self._functions[tool_call.function.name]
 
@@ -335,7 +336,7 @@ args:{args}
             return f'Error executing function: {e}'
 
 
-    async def chat(self, messages: list, *, ctx: T.Optional[object] = None) -> dict:
+    async def chat(self, messages: list, *, ctx: T.Optional[object] = None) -> dict|None:
         """Chats with the LLM, sending the given messages, handling common failures and returning the response.
            Automatically calls any tool functions requested."""
 

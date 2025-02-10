@@ -1,5 +1,6 @@
 import typing as T
 from .prompter import Prompter, CodeSegment, mk_message, get_module_name
+from ..utils import lines_branches_do
 
 
 class GptV1Prompter(Prompter):
