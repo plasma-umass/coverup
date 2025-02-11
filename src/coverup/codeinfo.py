@@ -91,10 +91,19 @@ def _auto_stack(func):
     return helper
 
 
-def _handle_import(module: Module, node: ast.Import | ast.ImportFrom, name: T.List[str],
-                   *, paths_seen: T.Set[Path]|None = None) -> T.Optional[T.List[ast.AST]]:
+def _handle_import(
+    module: Module,
+    node: ast.AST,
+    name: list[str],
+    *,
+    paths_seen: set[Path]|None = None
+) -> list[Module|ast.stmt] | None:
 
-    def transition(node: ast.Import | ast.ImportFrom, alias: ast.alias, mod: Module) -> T.List:
+    def transition(
+        node: ast.Import | ast.ImportFrom,
+        alias: ast.alias,
+        mod: Module
+    ) -> list[Module|ast.stmt]:
         imp = copy.copy(node)
         imp.names = [alias]
         return [imp, mod]
@@ -145,10 +154,10 @@ def _handle_import(module: Module, node: ast.Import | ast.ImportFrom, name: T.Li
 
 def _find_name_path(
     module: Module|None,
-    name: T.List[str],
+    name: list[str],
     *,
-    paths_seen: T.Set[Path]|None = None
-) -> T.List[ast.AST]|None:
+    paths_seen: set[Path]|None = None
+) -> list[Module|ast.stmt]|None:
     """Looks for a symbol's definition by its name, returning the "path" of ast.ClassDef, ast.Import, etc.,
        crossed to find it.
     """
@@ -162,7 +171,7 @@ def _find_name_path(
     paths_seen.add(module.path)
 
     @_auto_stack
-    def find_name(node: ast.AST, name: T.List[str]) -> T.List[ast.AST]:
+    def find_name(node: ast.AST, name: list[str]) -> list[Module|ast.stmt]:
         _debug(f"_find_name {name} in {ast.dump(node)}")
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.name == name[0]:
@@ -170,9 +179,9 @@ def _find_name_path(
                     return [node]
 
                 if isinstance(node, ast.ClassDef):
-                    for c in node.body:
-                        _debug(f"{node.name} checking {ast.dump(c)}")
-                        if (path := find_name(c, name[1:])):
+                    for stmt in node.body:
+                        _debug(f"{node.name} checking {ast.dump(stmt)}")
+                        if (path := find_name(stmt, name[1:])):
                             return [node, *path]
 
                     for base in node.bases:
@@ -192,7 +201,7 @@ def _find_name_path(
             return [node] if len(name) == 1 else []
 
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            if (path := _handle_import(module, node, name, paths_seen=paths_seen)):
+            if (path := _handle_import(T.cast(Module, module), node, name, paths_seen=paths_seen)):
                 return path
 
             return []
@@ -208,7 +217,7 @@ def _find_name_path(
     return find_name(module, name)
 
 
-def _summarize(path: T.List[ast.AST]) -> ast.AST:
+def _summarize(path: list[Module|ast.stmt]) -> Module|ast.stmt:
     """Replaces portions of Class elements with "..." to reduce noise and tokens."""
 
     # first the object
@@ -234,7 +243,7 @@ def _summarize(path: T.List[ast.AST]) -> ast.AST:
             path_i = T.cast(ast.ClassDef, path[i])
             path_i.body = [
                 ast.Expr(ast.Constant(value=ast.literal_eval("..."))),
-                path[i+1]
+                T.cast(ast.stmt, path[i+1])
             ]
 
     return path[0]
@@ -248,11 +257,11 @@ def parse_file(file: Path) -> Module:
     return Module(tree, file)
 
 
-def _common_prefix_len(a: T.List[str], b: T.List[str]) -> int:
+def _common_prefix_len(a: T.Sequence[str], b: T.Sequence[str]) -> int:
     return next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
 
 
-def get_global_imports(module: Module, node: ast.AST) -> T.List[ast.Import | ast.ImportFrom]:
+def get_global_imports(module: Module, node: ast.AST) -> T.Sequence[ast.Import | ast.ImportFrom]:
     """Looks for module-level `import`s that (may) define the names seen in "node"."""
 
     def get_names(node: ast.AST):
@@ -303,12 +312,15 @@ def get_global_imports(module: Module, node: ast.AST) -> T.List[ast.Import | ast
     return imports
 
 
-def _find_excerpt(module: ast.Module, line: int) -> ast.AST|None:
-    for node in ast.walk(module):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            begin = min([node.lineno] + [d.lineno for d in node.decorator_list])
-            if begin <= line <= node.end_lineno:
-                return node
+def _find_excerpt(node: ast.AST, line: int) -> ast.AST|None:
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        begin = min([node.lineno] + [d.lineno for d in node.decorator_list])
+        if begin <= line:
+            return node
+
+    for c in ast.iter_child_nodes(node):
+        if (excerpt := _find_excerpt(c, line)):
+            return excerpt
 
     return None
 
@@ -322,7 +334,7 @@ def get_info(module: Module, name: str, *, line: int = 0, generate_imports: bool
         (common_prefix := _common_prefix_len(module_fqn, key))):
         key = key[common_prefix:]
 
-    path = None
+    path: list[Module|ast.stmt]|None = None
     # first look in the excerpt node, such as the focal function, if specified
     if (excerpt_node := _find_excerpt(module, line)):
         for c in ast.walk(excerpt_node):
@@ -342,7 +354,7 @@ def get_info(module: Module, name: str, *, line: int = 0, generate_imports: bool
                 break
 
 
-    def any_import_as_or_import_in_class() -> bool:
+    def any_import_as_or_import_in_class(path: T.Sequence[Module|ast.stmt]) -> bool:
         return any(
             isinstance(n, (ast.Import, ast.ImportFrom)) and (
                 n.names[0].asname or (
@@ -358,41 +370,48 @@ def get_info(module: Module, name: str, *, line: int = 0, generate_imports: bool
         for i in range(len(path)):
             _debug(f"path[{i}]={ast.dump(path[i])}")
 
-        if any_import_as_or_import_in_class():
+        if any_import_as_or_import_in_class(path):
             # include the full path for best context 
-            path = [module] + path
+            path.insert(0, module)
         else:
             # just include the last module
             modules = [i for i in range(len(path)) if isinstance(path[i], ast.Module)]
             if modules:
                 path = path[modules[-1]:]
 
-        if any(isinstance(n, ast.Module) for n in path):
-            result = ""
-            for i, mod in enumerate(path):
-                if isinstance(mod, ast.Module):
-                    content = path[i+1] if i < len(path)-1 else mod
+        if not any(isinstance(n, ast.Module) for n in path):
+            # no module in the path: we stay within the same file
+            content = T.cast(ast.stmt, path[0])
+            imports = get_global_imports(module, content) if generate_imports else []
+            return f"""\
+```python
+{ast.unparse(ast.Module(body=[*imports, content], type_ignores=[]))}
+```"""
+
+        # there's a module in the path: build 'result' with all file transitions
+        result = ""
+        for i, item in enumerate(path):
+            if isinstance(item, ast.Module):
+                mod = item
+                if i >= len(path)-1: # ends in a module
                     # When a module itself is the content, all imports are retained,
                     # so there's no need to look for them.
-                    if generate_imports and mod != content:
-                        imports = get_global_imports(mod, content)
-                    else:
-                        imports = []
+                    if result: result += "\n\n"
+                    result += f"""\
+in {_package_path(mod.path)}:
+```python
+{ast.unparse(mod)}
+```"""
+                else:
+                    # continues to some content within a module
+                    content = T.cast(ast.stmt, path[i+1])
+                    imports = get_global_imports(mod, content) if generate_imports else []
                     if result: result += "\n\n"
                     result += f"""\
 in {_package_path(mod.path)}:
 ```python
 {ast.unparse(ast.Module(body=[*imports, content], type_ignores=[]))}
 ```"""
-            return result
-        else:
-            if generate_imports:
-                imports = get_global_imports(module, path[0])
-            else:
-                imports = []
-            return f"""\
-```python
-{ast.unparse(ast.Module(body=[*imports, path[0]], type_ignores=[]))}
-```"""
+        return result
 
     return None
