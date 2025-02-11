@@ -108,13 +108,14 @@ def _handle_import(module: Module, node: ast.Import | ast.ImportFrom, name: T.Li
                 if alias.asname == name[0]:
                     mod = _load_module(alias.name)
                     if path := _find_name_path(mod, name[1:], paths_seen=paths_seen):
-                        return transition(node, alias, mod) + path
+                        # _find_name_path returns None if mod is None
+                        return transition(node, alias, T.cast(Module, mod)) + path
 
             elif (import_name := alias.name.split('.'))[0] == name[0]:
                 common_prefix = _common_prefix_len(import_name, name)
                 mod = _load_module('.'.join(import_name[:common_prefix]))
                 if path := _find_name_path(mod, name[common_prefix:], paths_seen=paths_seen):
-                    return transition(node, alias, mod) + path
+                    return transition(node, alias, T.cast(Module, mod)) + path
 
     elif isinstance(node, ast.ImportFrom):
         # from a.b import N         either gets symbol N out of a.b, or imports a.b.N as N
@@ -132,15 +133,22 @@ def _handle_import(module: Module, node: ast.Import | ast.ImportFrom, name: T.Li
                 _debug(f"looking for symbol ({[alias.name, *name[1:]]} in {modname})")
                 mod = _load_module(modname)
                 if path := _find_name_path(mod, [alias.name, *name[1:]], paths_seen=paths_seen):
-                    return transition(node, alias, mod) + path
+                    return transition(node, alias, T.cast(Module, mod)) + path
 
                 _debug(f"looking for module ({name[1:]} in {modname}.{alias.name})")
                 if (mod := _load_module(f"{modname}.{alias.name}")) and \
                    (path := _find_name_path(mod, name[1:], paths_seen=paths_seen)):
-                    return transition(node, alias, mod) + path
+                    return transition(node, alias, T.cast(Module, mod)) + path
+
+    return None
 
 
-def _find_name_path(module: Module, name: T.List[str], *, paths_seen: T.Set[Path]|None = None) -> T.List[ast.AST]|None:
+def _find_name_path(
+    module: Module|None,
+    name: T.List[str],
+    *,
+    paths_seen: T.Set[Path]|None = None
+) -> T.List[ast.AST]|None:
     """Looks for a symbol's definition by its name, returning the "path" of ast.ClassDef, ast.Import, etc.,
        crossed to find it.
     """
@@ -176,13 +184,6 @@ def _find_name_path(module: Module, name: T.List[str], *, paths_seen: T.Set[Path
 
                         if (path := find_name(module, [*base_name, *name[1:]])):
                             return path
-
-                elif isinstance(module, (ast.Function, ast.AsyncFunction)):
-                    # searching within a function in the excerpt
-                    for c in node.body:
-                        _debug(f"{node.name} checking {ast.dump(c)}")
-                        if (path := find_name(c, name[1:])):
-                            return [node, *path]
 
             return []
 
