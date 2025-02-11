@@ -159,11 +159,11 @@ def parse_log(log_content: str, check_c_p_equivalence=False):
             messages = j['messages']
 
             start = max([0, *[i+1 for i in range(len(messages)) if messages[i]['role'] == 'assistant']])
-            for m in messages[start:]:
-                if m['role'] == 'tool':
-                    yield timestamp, 'N', seginfo, m['content']
+            for msg in messages[start:]:
+                if msg['role'] == 'tool':
+                    yield timestamp, 'N', seginfo, msg['content']
                 else:
-                    yield timestamp, what(m['content']), seginfo, m['content']
+                    yield timestamp, what(msg['content']), seginfo, msg['content']
         else:
             yield timestamp, what(content), seginfo, content
 
@@ -172,7 +172,7 @@ def get_sequences(log_content: str, check_c_p_equivalence=True):
     """Collates log events by segment"""
 
     from collections import defaultdict
-    segs = defaultdict(list)
+    segs: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
 
     def yield_sequences():
         for seg, seq in list(segs.items()):

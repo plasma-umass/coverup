@@ -416,12 +416,12 @@ class State:
         """Initializes the CoverUp state."""
         from collections import defaultdict
 
-        self._done : T.Dict[str, T.Set[T.Tuple[int, int]]] = defaultdict(set)
+        self._done : T.Dict[Path, T.Set[T.Tuple[int, int]]] = defaultdict(set)
         self._coverage = initial_coverage
-        self._cost = 0
+        self._cost = 0.0
         self._counters = {k:0 for k in PROGRESS_COUNTERS}
-        self._final_coverage = None
-        self._bar = None
+        self._final_coverage: dict|None = None
+        self._bar: Progress|None = None
 
 
     def get_initial_coverage(self) -> dict:
@@ -512,7 +512,7 @@ def extract_python(response: str) -> str:
     return m.group(1)
 
 
-state = None
+state: State
 
 async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSegment) -> bool:
     """Works to improve coverage for a code segment."""
