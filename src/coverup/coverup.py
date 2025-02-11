@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+import argparse
 import subprocess
 import re
 import sys
@@ -42,8 +43,6 @@ prompter_registry = get_prompters()
 
 
 def parse_args(args=None):
-    import argparse
-
     ap = argparse.ArgumentParser(prog='CoverUp',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     ap.add_argument('source_files', type=Path, nargs='*',
@@ -203,7 +202,6 @@ def parse_args(args=None):
     else:
         ap.error('Specify either --package-dir or a file name')
 
-
     return args
 
 
@@ -213,7 +211,7 @@ def test_file_path(args, test_seq: int) -> Path:
 
 
 test_seq: int = 1
-def new_test_file(args):
+def new_test_file(args: argparse.Namespace):
     """Creates a new test file, returning its Path."""
 
     global test_seq
@@ -250,21 +248,20 @@ def clean_error(error: str) -> str:
 
 
 log_file = None
-def log_write(seg: CodeSegment, m: str) -> None:
+def log_write(args: argparse.Namespace, seg: CodeSegment, m: str) -> None:
     """Writes to the log file, opening it first if necessary."""
 
-    global log_file, args
+    global log_file
     if not log_file:
         log_file = open(args.log_file, "a", buffering=1)    # 1 = line buffered
 
     log_file.write(f"---- {datetime.now().isoformat(timespec='seconds')} {seg} ----\n{m}\n")
 
 
-def check_whole_suite() -> None:
+def check_whole_suite(args: argparse.Namespace) -> None:
     """Check whole suite and disable any polluting/failing tests."""
     import pytest_cleanslate.reduce as reduce
 
-    global args
     pytest_args = (*(("--count", str(args.repeat_tests)) if args.repeat_tests else ()), *args.pytest_args.split())
 
     while True:
@@ -344,8 +341,8 @@ def missing_imports(modules: T.List[str]) -> T.List[str]:
     return [m for m in modules if not module_available[m]]
 
 
-def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool: 
-    global args, module_available
+def install_missing_imports(args: argparse.Namespace, seg: CodeSegment, modules: T.List[str]) -> bool: 
+    global module_available
 
     import importlib.metadata
 
@@ -358,13 +355,13 @@ def install_missing_imports(seg: CodeSegment, modules: T.List[str]) -> bool:
             version = importlib.metadata.version(module)
             module_available[module] = 2    # originally unavailable, but now added
             print(f"Installed module {module} {version}")
-            log_write(seg, f"Installed module {module} {version}")
+            log_write(args, seg, f"Installed module {module} {version}")
 
             if args.write_requirements_to:
                 with args.write_requirements_to.open("a") as f:
                     f.write(f"{module}=={version}\n")
         except subprocess.CalledProcessError as e:
-            log_write(seg, f"Unable to install module {module}:\n{str(e.stdout, 'UTF-8', errors='ignore')}")
+            log_write(args, seg, f"Unable to install module {module}:\n{str(e.stdout, 'UTF-8', errors='ignore')}")
             all_ok = False
 
     return all_ok
@@ -514,9 +511,13 @@ def extract_python(response: str) -> str:
 
 state: State
 
-async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSegment) -> bool:
+async def improve_coverage(
+    args: argparse.Namespace,
+    chatter: llm.Chatter,
+    prompter: Prompter,
+    seg: CodeSegment
+) -> bool:
     """Works to improve coverage for a code segment."""
-    global args
 
     messages = prompter.initial_prompt(seg)
     attempts = 0
@@ -527,11 +528,11 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
     while True:
         attempts += 1
         if (attempts > args.max_attempts):
-            log_write(seg, "Too many attempts, giving up")
+            log_write(args, seg, "Too many attempts, giving up")
             break
 
         if not (response := await chatter.chat(messages, ctx=seg)):
-            log_write(seg, "giving up")
+            log_write(args, seg, "giving up")
             break
 
         response_message = response["choices"][0]["message"]
@@ -540,12 +541,12 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
         if '```python' in response_message['content']:
             last_test = extract_python(response_message['content'])
         else:
-            log_write(seg, "No Python code in GPT response, giving up")
+            log_write(args, seg, "No Python code in GPT response, giving up")
             break
 
         if missing := missing_imports(find_imports(last_test)):
-            log_write(seg, f"Missing modules {' '.join(missing)}")
-            if not args.install_missing_modules or not install_missing_imports(seg, missing):
+            log_write(args, seg, f"Missing modules {' '.join(missing)}")
+            if not args.install_missing_modules or not install_missing_imports(args, seg, missing):
                 return False # not finished: needs a missing module
 
         try:
@@ -554,10 +555,10 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
                                                  pytest_args=pytest_args,
                                                  isolate_tests=args.isolate_tests,
                                                  branch_coverage=args.branch_coverage,
-                                                 log_write=lambda msg: log_write(seg, msg))
+                                                 log_write=lambda msg: log_write(args, seg, msg))
 
         except subprocess.TimeoutExpired:
-            log_write(seg, "measure_coverage timed out")
+            log_write(args, seg, "measure_coverage timed out")
             # FIXME is the built-in timeout reasonable? Do we prompt for a faster test?
             # We don't want slow tests, but there may not be any way around it.
             return True
@@ -566,7 +567,7 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
             state.inc_counter('F')
             error = clean_error(str(e.stdout, 'UTF-8', errors='ignore'))
             if not (prompts := prompter.error_prompt(seg, error)):
-                log_write(seg, "Test failed:\n\n" + error)
+                log_write(args, seg, "Test failed:\n\n" + error)
                 break
 
             messages.extend(prompts)
@@ -590,7 +591,7 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
         if not gained_lines and not gained_branches:
             state.inc_counter('U')
             if not (prompts := prompter.missing_coverage_prompt(seg, seg.missing_lines, seg.missing_branches)):
-                log_write(seg, "Test doesn't improve coverage")
+                log_write(args, seg, "Test doesn't improve coverage")
                 break
 
             messages.extend(prompts)
@@ -605,7 +606,7 @@ async def improve_coverage(chatter: llm.Chatter, prompter: Prompter, seg: CodeSe
                             f"# gained: {json.dumps(gained)}\n\n" +\
                             last_test)
 
-        log_write(seg, f"Saved as {new_test}\n")
+        log_write(args, seg, f"Saved as {new_test}\n")
         state.inc_counter('G')
 
         if args.save_coverage_to:
@@ -628,7 +629,7 @@ def main():
     from collections import defaultdict
     import os
 
-    global args, state
+    global state
     args = parse_args()
 
     if not args.tests_dir.exists():
@@ -642,8 +643,8 @@ def main():
     if args.prompt_for_tests:
         try:
             chatter = llm.Chatter(model=args.model)
-            chatter.set_log_msg(log_write)
-            chatter.set_log_json(lambda ctx, j: log_write(ctx, json.dumps(j, indent=2)))
+            chatter.set_log_msg(lambda ctx, msg: log_write(args, ctx, msg))
+            chatter.set_log_json(lambda ctx, j: log_write(args, ctx, json.dumps(j, indent=2)))
             chatter.set_signal_retry(lambda: state.inc_counter('R'))
 
             chatter.set_model_temperature(args.model_temperature)
@@ -660,7 +661,7 @@ def main():
             print(e)
             return 1
 
-        log_write('startup', f"Command: {' '.join(sys.argv)}")
+        log_write(args, 'startup', f"Command: {' '.join(sys.argv)}")
 
         # --- (1) load or measure initial coverage, figure out segmentation ---
 
@@ -670,7 +671,7 @@ def main():
         else:
             if args.disable_polluting or args.disable_failing:
                 # check and clean up suite before measuring coverage
-                check_whole_suite()
+                check_whole_suite(args)
 
             try:
                 print("Measuring coverage...  ", end='', flush=True)
@@ -703,7 +704,7 @@ def main():
         print("(in the following, G=good, F=failed, U=useless and R=retry)")
 
         async def work_segment(seg: CodeSegment) -> None:
-            if await improve_coverage(chatter, prompter, seg):
+            if await improve_coverage(args, chatter, prompter, seg):
                 # Only mark done if was able to complete (True return),
                 # so that it can be retried after installing any missing modules
                 state.mark_done(seg)
@@ -754,7 +755,7 @@ def main():
     # --- (3) clean up resulting test suite ---
 
     if args.disable_polluting or args.disable_failing:
-        check_whole_suite()
+        check_whole_suite(args)
 
     # --- (4) show final coverage
 

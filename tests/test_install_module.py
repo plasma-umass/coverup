@@ -17,21 +17,19 @@ def uninstall():
 
 def test_install(pkg_fixture, monkeypatch, uninstall):
     log = ""
-    def mock_log_write(seg, m: str) -> None:
+    def mock_log_write(args, seg, m: str) -> None:
         nonlocal log
         log += m
 
     monkeypatch.setattr("coverup.coverup.log_write", mock_log_write)
-    monkeypatch.setattr("coverup.coverup.args",
-        coverup.parse_args(["--package", "lib/ansible", "--tests", "tests", "--model", "gpt4o",
-                            "--write-requirements-to", "reqs.txt"]),
-        raising=False
-    )
+
+    args = coverup.parse_args(["--package", "lib/ansible", "--tests", "tests", "--model", "gpt4o",
+                               "--write-requirements-to", "reqs.txt"])
 
     missing = coverup.missing_imports(['mymodule'])
     assert missing
 
-    ok = coverup.install_missing_imports(MockSegment(), missing)
+    ok = coverup.install_missing_imports(args, MockSegment(), missing)
     assert ok
 
     import importlib.metadata as md

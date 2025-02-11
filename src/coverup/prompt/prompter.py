@@ -1,4 +1,5 @@
 import abc
+import argparse
 import typing as T
 from pathlib import Path
 from ..utils import lines_branches_do
@@ -8,7 +9,7 @@ from ..segment import CodeSegment
 class Prompter(abc.ABC):
     """Interface for a CoverUp prompter."""
 
-    def __init__(self, cmd_args):
+    def __init__(self, cmd_args: argparse.Namespace):
         self.args = cmd_args
 
 
