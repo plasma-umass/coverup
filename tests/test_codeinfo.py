@@ -41,7 +41,7 @@ def import_fixture(importlib_cleanup, monkeypatch):
         monkeypatch.syspath_prepend(tmp_path)
         yield tmp_path
 
-    shutil.rmtree(tmp_path)
+    shutil.rmtree(tmp_path, ignore_errors=True)
 
 
 def get_fqn(p):
