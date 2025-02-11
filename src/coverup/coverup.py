@@ -69,7 +69,7 @@ def parse_args(args=None):
 
     def default_model():
         if 'OPENAI_API_KEY' in os.environ:
-            return "gpt-4o-2024-05-13"
+            return "gpt-4o"
         if 'ANTHROPIC_API_KEY' in os.environ:
             return "anthropic/claude-3-sonnet-20240229"
         if 'AWS_ACCESS_KEY_ID' in os.environ:
