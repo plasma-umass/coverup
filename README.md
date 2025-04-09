@@ -48,7 +48,7 @@ $ export OPENAI_API_KEY=<...your-api-key...>
 ## Using CoverUp
 If your module is named `mymod`, its sources are under `src` and the tests under `tests`, you can run CoverUp as
 ```shell
-$ coverup --source-dir src/mymod --tests-dir tests
+$ coverup --package src/mymod --tests tests
 ```
 CoverUp then creates tests named `test_coverup_N.py`, where `N` is a number, under the `tests` directory.
 
