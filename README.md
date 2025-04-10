@@ -26,7 +26,7 @@ CoverUp then engages in a conversation with an [LLM](https://en.wikipedia.org/wi
 prompting for tests, checking the results to verify that they run and increase coverage (again using SlipCover), and re-prompting for adjustments as necessary.
 Finally, CoverUp optionally checks that the new tests integrate well, attempting to resolve any issues it finds.
 
-For technical details and a complete evaluation, see our arXiv paper, [_CoverUp: Coverage-Guided LLM-Based Test Generation_](https://arxiv.org/abs/2403.16218) ([PDF](https://arxiv.org/pdf/2403.16218)).
+For technical details and a complete evaluation, see our arXiv paper, [_CoverUp: Coverage-Guided LLM-Based Test Generation_](https://arxiv.org/abs/2403.16218) ([PDF](https://arxiv.org/pdf/2403.16218)), to appear at FSE 2025.
 
 
 ## Installing CoverUp
