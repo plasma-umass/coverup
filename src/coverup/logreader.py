@@ -83,7 +83,7 @@ def is_same_as_P(content, begin, end):
 
 def parse_log_raw(log_content: str):
     """Yields raw items from a CoverUp log."""
-    for m in re.finditer('---- (?:(\S+) )?([\S+ ]+) ----\n\n?(.*?)(?=\n---- |\Z)',
+    for m in re.finditer(r'---- (?:(\S+) )?([\S+ ]+) ----\n\n?(.*?)(?=\n---- |\Z)',
                          log_content, re.DOTALL):
         timestamp, ctx, content = m.groups()
         yield timestamp, ctx, content
@@ -97,7 +97,7 @@ def parse_log(log_content: str, check_c_p_equivalence=False):
             yield timestamp, 'startup', None, content
             continue
 
-        if not (m := re.match('(\S+):(\d+)-(\d+)', ctx)):
+        if not (m := re.match(r'(\S+):(\d+)-(\d+)', ctx)):
             continue
 
         py, begin, end = m.groups()
