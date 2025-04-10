@@ -10,6 +10,8 @@ at UMass Amherst's [PLASMA lab](https://plasma-umass.org/).
 [![pypi](https://img.shields.io/pypi/v/coverup?color=blue)](https://pypi.org/project/coverup/)
 ![pyversions](https://img.shields.io/pypi/pyversions/coverup)
 [![DOI](https://zenodo.org/badge/675841810.svg)](https://doi.org/10.5281/zenodo.15187804)
+[![Downloads](https://static.pepy.tech/badge/coverup)](https://pepy.tech/project/coverup)
+[![Downloads](https://static.pepy.tech/badge/coverup/month)](https://pepy.tech/project/coverup)
 
 ## About CoverUp
 CoverUp automatically generates tests that ensure that more of your code is tested
