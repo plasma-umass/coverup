@@ -170,6 +170,9 @@ def parse_args(args=None):
     args = ap.parse_args(args)
 
     for i in range(len(args.source_files)):
+        if not args.source_files[i].is_file() or args.source_files[i].suffix != '.py':
+            ap.error(f'All source files given must be Python sources; offending file: "{args.source_files[i]}".')
+
         args.source_files[i] = args.source_files[i].resolve()
 
     if args.disable_failing and args.disable_polluting:
@@ -197,6 +200,7 @@ def parse_args(args=None):
     elif args.source_files:
         if len({p.parent for p in args.source_files}) > 1:
             ap.error('All source files must be in the same directory unless --package-dir is given.')
+
         # use the directory itself as base, as these file(s) are not obviously part of anything
         args.src_base_dir = args.source_files[0].parent
     else:
@@ -232,15 +236,15 @@ def clean_error(error: str) -> str:
     """Conservatively removes pytest-generated (and possibly other) output not needed by GPT,
        to cut down on token use.  Conservatively: if the format isn't recognized, leave it alone."""
 
-    if (match := re.search("=====+ (?:FAILURES|ERRORS) ===+\n" +\
-                           "___+ [^\n]+ _+___\n" +\
-                           "\n?" +\
-                           "(.*)", error,
+    if (match := re.search(r"=====+ (?:FAILURES|ERRORS) ===+\n" +\
+                           r"___+ [^\n]+ _+___\n" +\
+                           r"\n?" +\
+                           r"(.*)", error,
                            re.DOTALL)):
         error = match.group(1)
 
-    if (match := re.search("(.*\n)" +\
-                           "===+ short test summary info ===+", error,
+    if (match := re.search(r"(.*\n)" +\
+                           r"===+ short test summary info ===+", error,
                            re.DOTALL)):
         error = match.group(1)
 

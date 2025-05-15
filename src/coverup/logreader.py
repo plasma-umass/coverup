@@ -14,7 +14,7 @@ def is_same_as_P(content, begin, end):
     begin, end = int(begin), int(end)
 
     if (rng := re.search(r'^when tested, lines (\d+)-(\d+) do not execute', content, re.M)) and \
-       (py := re.search('```python\n(.*)```', content, re.S)):
+       (py := re.search(r'```python\n(.*)```', content, re.S)):
         first, last = int(rng.group(1)), int(rng.group(2))
 
         def del_line_markup(s):
