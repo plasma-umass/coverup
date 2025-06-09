@@ -9,12 +9,15 @@ import traceback
 from aiolimiter import AsyncLimiter
 
 with warnings.catch_warnings():
+    # ignore pydantic warnings https://github.com/BerriAI/litellm/issues/2832
     warnings.simplefilter('ignore')
     import litellm  # type: ignore
 
+# Turn off most logging
 litellm.set_verbose = False
 litellm.suppress_debug_info = True
 logging.getLogger().setLevel(logging.ERROR)
+# Ignore unavailable parameters
 litellm.drop_params = True
 
 # Tier 5 rate limits for models; tuples indicate limit and interval in seconds
@@ -53,7 +56,7 @@ def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int] | None:
     if (model_limits := MODEL_RATE_LIMITS.get(model_name)):
         limit = model_limits.get('token')
 
-        if "anthropic" not in model_name:
+        if not "anthropic" in model_name:
             try:
                 import tiktoken
                 tiktoken.encoding_for_model(model_name)
@@ -78,17 +81,32 @@ def compute_cost(usage: dict, model_name: str) -> float | None:
 
     return None
 
+_token_encoding_cache: dict[str, T.Any] = dict()
 def count_tokens(model_name: str, completion: dict):
-    from litellm import token_counter
+    """Counts the number of tokens in a chat completion request."""
+    import tiktoken
 
-    count = token_counter(model=model_name, messages=completion['messages'])
-    
+    if "anthropic" in model_name:
+        return 1
+
+    if not (encoding := _token_encoding_cache.get(model_name)):
+        model = model_name
+        if model_name.startswith('openai/'):
+            model = model_name[7:]
+
+        encoding = _token_encoding_cache[model_name] = tiktoken.encoding_for_model(model)
+
+    count = 0
+    for m in completion['messages']:
+        count += len(encoding.encode(m['content']))
+
     return count
 
 class ChatterError(Exception):
     pass
 
 class Chatter:
+    """Chats with an LLM."""
     def __init__(self, model: str) -> None:
         Chatter._validate_model(model)
 
@@ -150,18 +168,23 @@ class Chatter:
         self._max_backoff = max_backoff
 
     def set_add_cost(self, add_cost: T.Callable) -> None:
+        """Sets up a callback to indicate additional costs."""
         self._add_cost = add_cost
 
     def set_log_msg(self, log_msg: T.Callable[[str, str], None]) -> None:
+        """Sets up a callback to write a message to the log."""
         self._log_msg = log_msg
 
     def set_log_json(self, log_json: T.Callable[[str, dict], None]) -> None:
+        """Sets up a callback to write a json exchange to the log."""
         self._log_json = log_json
 
     def set_signal_retry(self, signal_retry: T.Callable) -> None:
+        """Sets up a callback to indicate a retry."""
         self._signal_retry = signal_retry
 
     def add_function(self, function: T.Callable) -> None:
+        """Makes a function availabe to the LLM."""
         if not litellm.supports_function_calling(self._model):
             raise ChatterError(f"The {self._model} model does not support function calling.")
 
@@ -190,15 +213,18 @@ class Chatter:
         return request
 
     async def _send_request(self, request: dict, ctx: object) -> litellm.ModelResponse | None:
+        """Sends the LLM chat request, handling common failures and returning the response."""
         sleep = 1
         while True:
             try:
+                # TODO also add request limit; could use 'await asyncio.gather(t.acquire(tokens), r.acquire())'
+                # to acquire both
                 if self.token_rate_limit:
                     try:
                         await self.token_rate_limit.acquire(count_tokens(self._model, request))
                     except ValueError as e:
                         self._log_msg(ctx, f"Error: too many tokens for rate limit ({e})")
-                        return None
+                        return None # gives up this segment
 
                 return await litellm.acreate(**request)
 
@@ -206,6 +232,7 @@ class Chatter:
                     openai.RateLimitError,
                     openai.APITimeoutError) as e:
 
+                # This message usually indicates out of money in account
                 if 'You exceeded your current quota' in str(e):
                     self._log_msg(ctx, f"Failed: {type(e)} {e}")
                     raise
@@ -219,8 +246,9 @@ class Chatter:
                 await asyncio.sleep(sleep_time)
 
             except openai.BadRequestError as e:
+                # usually "maximum context length" XXX check for this?
                 self._log_msg(ctx, f"Error: {type(e)} {e}")
-                return None
+                return None # gives up this segment
 
             except openai.AuthenticationError as e:
                 self._log_msg(ctx, f"Failed: {type(e)} {e}")
@@ -228,12 +256,15 @@ class Chatter:
 
             except openai.APIConnectionError as e:
                 self._log_msg(ctx, f"Error: {type(e)} {e}")
+                # usually a server-side error... just retry right away
                 self._signal_retry()
 
             except openai.APIError as e:
+                # APIError is the base class for all API errors;
+                # we may be missing a more specific handler.
                 print(f"Error: {type(e)} {e}; missing handler?")
                 self._log_msg(ctx, f"Error: {type(e)} {e}")
-                return None
+                return None # gives up this segment
 
     def _call_function(self, ctx: object, tool_call: litellm.ModelResponse) -> str:
         args = json.loads(tool_call.function.arguments)
@@ -251,6 +282,8 @@ args:{args}
             return f'Error executing function: {e}'
 
     async def chat(self, messages: list, *, ctx: T.Optional[object] = None) -> dict | None:
+        """Chats with the LLM, sending the given messages, handling common failures and returning the response.
+           Automatically calls any tool functions requested."""
         func_calls = 0
         while func_calls <= self._max_func_calls_per_chat:
             request = self._request(messages)
@@ -266,7 +299,7 @@ args:{args}
                 return response.json()
 
             tool_message = response.choices[0].message.json()
-            tool_message["content"] = ""
+            tool_message["content"] = "" # it's typically set to null, which upsets count_tokens
             messages.append(tool_message)
 
             for call in response.choices[0].message.tool_calls:
