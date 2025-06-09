@@ -78,24 +78,11 @@ def compute_cost(usage: dict, model_name: str) -> float | None:
 
     return None
 
-_token_encoding_cache: dict[str, T.Any] = dict()
 def count_tokens(model_name: str, completion: dict):
-    import tiktoken
+    from litellm import token_counter
 
-    if "anthropic" in model_name:
-        return 1
-
-    if not (encoding := _token_encoding_cache.get(model_name)):
-        model = model_name
-        if model_name.startswith('openai/'):
-            model = model_name[7:]
-
-        encoding = _token_encoding_cache[model_name] = tiktoken.encoding_for_model(model)
-
-    count = 0
-    for m in completion['messages']:
-        count += len(encoding.encode(m['content']))
-
+    count = token_counter(model=model_name, messages=completion['messages'])
+    
     return count
 
 class ChatterError(Exception):
