@@ -53,7 +53,7 @@ def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int] | None:
     if (model_limits := MODEL_RATE_LIMITS.get(model_name)):
         limit = model_limits.get('token')
 
-        if not "anthropic" in model_name:
+        if "anthropic" not in model_name:
             try:
                 import tiktoken
                 tiktoken.encoding_for_model(model_name)
