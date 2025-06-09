@@ -72,7 +72,7 @@ def parse_args(args=None):
         if 'ANTHROPIC_API_KEY' in os.environ:
             return "anthropic/claude-3-sonnet-20240229"
         if 'AWS_ACCESS_KEY_ID' in os.environ:
-            return "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+            return "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
     ap.add_argument('--model', type=str, default=default_model(),
                     help='OpenAI model to use')
