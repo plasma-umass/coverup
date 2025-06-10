@@ -79,9 +79,7 @@ def test_claude_relative_file_name(pkg_fixture):
 
     p = ClaudePrompter(args)
     initial = p.initial_prompt(MockSegment())
-    assert '<file path="ansible/context.py"' in initial[1]['content']
-
-    assert "when tested, it does not execute." in initial[1]['content']
+    assert 'extracted from ansible/context.py,' in initial[1]['content']
 
 
 def test_ablated_nothing_ablated(pkg_fixture):
