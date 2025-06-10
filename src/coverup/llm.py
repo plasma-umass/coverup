@@ -103,7 +103,7 @@ class Chatter:
 
         self._model = model
         self._model_temperature: float | None = None
-        self._max_backoff = 64
+        self._max_backoff = 64 # seconds
         self.token_rate_limit: AsyncLimiter | None
         self.set_token_rate_limit(token_rate_limit_for_model(model))
         self._add_cost = lambda cost: None
