@@ -64,7 +64,7 @@ def parse_args(args=None):
     ap.add_argument('--checkpoint', type=Path, 
                     help=f'path to save progress to (and to resume it from)')
     ap.add_argument('--no-checkpoint', action='store_const', const=None, dest='checkpoint', default=argparse.SUPPRESS,
-                    help=f'disables checkpoint')
+                    help='disable checkpoint')
 
     def default_model():
         if 'OPENAI_API_KEY' in os.environ:
@@ -81,6 +81,12 @@ def parse_args(args=None):
                     choices=list(prompter_registry.keys()),
                     default='gpt-v2',
                     help='Prompt style to use')
+
+    ap.add_argument('--ollama-api-base', type=str, default="http://localhost:11434",
+                    help='"api_base" setting for Ollama models')
+
+    ap.add_argument('--bedrock-anthropic-version', type=str, default="bedrock-2023-05-31",
+                    help='"anthropic_version" setting for bedrock Anthropic models')
 
     ap.add_argument('--model-temperature', type=float, default=0,
                     help='Model "temperature" to use')
@@ -656,6 +662,13 @@ def main():
 
             if args.rate_limit:
                 chatter.set_token_rate_limit((args.rate_limit, 60))
+
+            extra_request_pars = {}
+            if "ollama" in args.model:
+                extra_request_pars['api_base'] = args.ollama_api_base
+            if args.model.startswith("bedrock/anthropic"):
+                extra_request_pars['anthropic_version'] = args.bedrock_anthropic_version
+            chatter.set_extra_request_pars(extra_request_pars)
 
             prompter = prompter_registry[args.prompt](cmd_args=args)
             for f in prompter.get_functions():
