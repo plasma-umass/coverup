@@ -1,73 +1,105 @@
 import typing as T
-from .prompter import Prompter, CodeSegment, mk_message, get_module_name
-from ..utils import lines_branches_do
+from .prompter import *
+import coverup.codeinfo as codeinfo
 
 
 class ClaudePrompter(Prompter):
-    """Prompter for Claude."""
+    """Prompter tuned for Claude 3 Sonnet."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def system_prompt(self) -> T.List[dict]:
+        """Optional: prepend this message when using Sonnet for better reliability."""
+        return [mk_message(
+            "You are a code generator that writes complete Python test files. "
+            "You must respond only with valid Python code enclosed in triple backticks, and nothing else. "
+            "Do not include explanations or commentary."
+        )]
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
-        module_name = get_module_name(segment.path, self.args.src_base_dir)
         filename = segment.path.relative_to(self.args.src_base_dir)
 
         return [
-            mk_message("You are an expert Python test-driven developer who creates pytest test functions that achieve high coverage.",
-                    role="system"),
+            *self.system_prompt(),
             mk_message(f"""
-<file path="{filename}" module_name="{module_name}">
-{segment.get_excerpt(tag_lines=bool(segment.executed_lines))}
-</file>
+You are an expert Python test-driven developer.
 
-<instructions>
+The following code, extracted from {filename}, does not achieve full coverage:
+{segment.lines_branches_missing_do()} do not execute.
 
-The code above does not achieve full coverage:
-when tested, {'it does' if not segment.executed_lines else segment.lines_branches_missing_do()} not execute.
+Your task:
+- Write new **pytest test functions** that cause all missing lines and branches to execute.
+- Tests must be correct and include assertions that verify postconditions.
+- If necessary, use the `get_info` tool function to learn more about symbols.
+- Ensure each test leaves no state behind; use `monkeypatch` or `pytest-mock` if helpful.
+- Do NOT include any top-level code that calls `pytest.main` or the test itself.
 
-1. Create a new pytest test function that executes these missing lines/branches, always making
-sure that the new test is correct and indeed improves coverage.
+Respond with **only the full Python test file**, enclosed in triple backticks.
 
-2. Always send entire Python test scripts when proposing a new test or correcting one you
-previously proposed.
+Here is the code to test:
 
-3. Be sure to include assertions in the test that verify any applicable postconditions.
-
-4. Please also make VERY SURE to clean up after the test, so as not to affect other tests;
-use 'pytest-mock' if appropriate.
-
-5. Write as little top-level code as possible, and in particular do not include any top-level code
-calling into pytest.main or the test itself.
-
-6.  Respond with the Python code enclosed in backticks. Before answering the question, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.
-</instructions>
+```python
+{segment.get_excerpt()}
+```
 """)
         ]
 
 
-    def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict]:
-        return [mk_message(f"""\
-<error>{error}</error>
-Executing the test yields an error, shown above.
-<instructions>
-1. Modify the test to correct it.
-2. Respond with the complete Python code in backticks.
-3. Before answering the question, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.
-</instructions>
+    def error_prompt(self, segment: CodeSegment, error: str) -> T.List[dict] | None:
+        return [
+            *self.system_prompt(),
+            mk_message(f"""\
+The test produced an error:
+
+{error}
+
+Please revise the test to correct the error.
+
+Respond with only the complete revised Python test file, enclosed in triple backticks.
+You may use the `get_info` tool function if needed.
 """)
         ]
 
 
     def missing_coverage_prompt(self, segment: CodeSegment,
-                                missing_lines: set, missing_branches: set) -> T.List[dict]:
-        return [mk_message(f"""\
-This test still lacks coverage: {lines_branches_do(missing_lines, set(), missing_branches)} not execute.
-<instructions>
-1. Modify it to execute those lines.
-2. Respond with the complete Python code in backticks.
-3. Before responding, please think about it step-by-step within <thinking></thinking> tags. Then, provide your final answer within <answer></answer> tags.
-</instructions>
+                                missing_lines: set, missing_branches: set) -> T.List[dict] | None:
+        return [
+            *self.system_prompt(),
+            mk_message(f"""\
+The test still lacks coverage: {lines_branches_do(missing_lines, set(), missing_branches)} do not execute.
+
+Revise the test to ensure full coverage.
+
+Respond with only the complete revised Python test file, enclosed in triple backticks.
+You may use the `get_info` tool function if helpful.
 """)
         ]
+
+
+    def get_info(self, ctx: CodeSegment, name: str) -> str:
+        """
+        {
+            "name": "get_info",
+            "description": "Returns information about a symbol.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "class, function or method name, as in 'f' for function f or 'C.foo' for method foo in class C."
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+        """
+
+        if info := codeinfo.get_info(codeinfo.parse_file(ctx.path), name, line=ctx.begin):
+            return "\"...\" below indicates omitted code.\n\n" + info
+
+        return f"Unable to obtain information on {name}."
+
+
+    def get_functions(self) -> T.List[T.Callable]:
+        return [self.get_info]

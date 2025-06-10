@@ -47,6 +47,8 @@ MODEL_RATE_LIMITS = {
     'bedrock/anthropic.claude-3-sonnet-20240229-v1:0': {'token': (1_000_000, 60), 'request': (10_000, 60)},
     'bedrock/anthropic.claude-3-opus-20240229-v1:0': {'token': (1_000_000, 60), 'request': (10_000, 60)},
     'anthropic.claude-3-5-sonnet-20241022-v2:0': {'token': (400_000, 50), 'request': (10_000, 50)},
+    'us.anthropic.claude-3-5-sonnet-20241022-v2:0': {'token': (400_000, 50), 'request': (10_000, 50)},
+    'us.anthropic.claude-3-7-sonnet-20250219-v1:0': {'token': (400_000, 50), 'request': (10_000, 50)},
 }
 
 def token_rate_limit_for_model(model_name: str) -> T.Tuple[int, int] | None:
@@ -226,11 +228,11 @@ class Chatter:
                     self._log_msg(ctx, f"Failed: {type(e)} {e}")
                     raise
 
-                self._log_msg(ctx, f"Error: {type(e)} {e}")
-
                 import random
                 sleep = min(sleep * 2, self._max_backoff)
                 sleep_time = random.uniform(sleep / 2, sleep)
+
+                self._log_msg(ctx, f"Error: {type(e)} {e} {sleep=} {sleep_time=}")
 
                 self._signal_retry()
                 await asyncio.sleep(sleep_time)
