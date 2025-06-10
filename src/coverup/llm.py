@@ -112,7 +112,7 @@ class Chatter:
         self._signal_retry = lambda: None
         self._functions: dict[str, dict[str, T.Any]] = dict()
         self._max_func_calls_per_chat = 50
-        self._extra_request_pars = None
+        self._extra_request_pars: dict[str, T.Any] | None = None
 
     @staticmethod
     def _validate_model(model) -> None:
