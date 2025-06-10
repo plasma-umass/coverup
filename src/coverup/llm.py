@@ -112,6 +112,7 @@ class Chatter:
         self._signal_retry = lambda: None
         self._functions: dict[str, dict[str, T.Any]] = dict()
         self._max_func_calls_per_chat = 50
+        self._extra_request_pars: dict[str, T.Any] | None = None
 
     @staticmethod
     def _validate_model(model) -> None:
@@ -174,6 +175,10 @@ class Chatter:
         """Sets up a callback to indicate a retry."""
         self._signal_retry = signal_retry
 
+    def set_extra_request_pars(self, request_pars: dict[str, T.Any] | None) -> None:
+        """Sets additional parameters to pass into the LLM request."""
+        self._extra_request_pars = request_pars
+
     def add_function(self, function: T.Callable) -> None:
         """Makes a function availabe to the LLM."""
         if not litellm.supports_function_calling(self._model):
@@ -190,18 +195,13 @@ class Chatter:
         self._functions[schema['name']] = {"function": function, "schema": schema}
 
     def _request(self, messages: T.List[dict]) -> dict:
-        request = {
+        return {
             'model': self._model,
             **({'temperature': self._model_temperature} if self._model_temperature is not None else {}),
             'messages': messages,
-            **({'api_base': "http://localhost:11434"} if "ollama" in self._model else {}),
-            **({'tools': [{'type': 'function', 'function': f['schema']} for f in self._functions.values()]} if self._functions else {})
+            **({'tools': [{'type': 'function', 'function': f['schema']} for f in self._functions.values()]} if self._functions else {}),
+            **(self._extra_request_pars if self._extra_request_pars else {})
         }
-
-        if self._model.startswith("bedrock/anthropic"):
-            request['anthropic_version'] = "bedrock-2023-05-31"
-
-        return request
 
     async def _send_request(self, request: dict, ctx: object) -> litellm.ModelResponse | None:
         """Sends the LLM chat request, handling common failures and returning the response."""

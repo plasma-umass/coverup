@@ -14,7 +14,8 @@ class ClaudePrompter(Prompter):
         return [mk_message(
             "You are a code generator that writes complete Python test files. "
             "You must respond only with valid Python code enclosed in triple backticks, and nothing else. "
-            "Do not include explanations or commentary."
+            "Do not include explanations or commentary.",
+            role='system'
         )]
 
     def initial_prompt(self, segment: CodeSegment) -> T.List[dict]:
