@@ -24,6 +24,7 @@ dependencies = [
     "tqdm",
     "slipcover>=1.0.13",
     "pytest-cleanslate>=1.0.6", # 1.0.6 fixes collection error bug
+    "pytest-isolate",
     "pytest-repeat",
     "litellm>=1.33.1"
 ]

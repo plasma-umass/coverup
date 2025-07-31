@@ -22,7 +22,7 @@ async def measure_test_coverage(*, test: str, tests_dir: Path, pytest_args='',
                 p = await subprocess_run([sys.executable, '-m', 'slipcover',  *(('--branch',) if branch_coverage else ()),
                                           '--json', '--out', j.name,
                                           '-m', 'pytest', *pytest_args.split(),
-                                          *(('--cleanslate',) if isolate_tests else ()),
+                                          *(('--isolate',) if isolate_tests else ()),
                                           '-qq', '-x', '--disable-warnings', t.name],
                                          check=True, timeout=60)
                 if log_write:
@@ -51,7 +51,7 @@ def measure_suite_coverage(*, tests_dir: Path, source_dir: T.Optional[Path], pyt
                              *(('--source', source_dir) if source_dir else ()),
                              *(('--branch',) if branch_coverage else ()),
                              '--json', '--out', j.name,
-                       '-m', 'pytest', *pytest_args.split(), *(('--cleanslate',) if isolate_tests else ()),
+                       '-m', 'pytest', *pytest_args.split(), *(('--isolate',) if isolate_tests else ()),
                              '--disable-warnings', '-x', tests_dir]
 
             if trace: trace(command)
